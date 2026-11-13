@@ -9,3 +9,19 @@ GitHub stores only ciphertext, and decryption happens only in your browser.
 
 - Design: [docs/DESIGN.md](docs/DESIGN.md)
 - Example outcome schema: [docs/examples/outcome.example.yaml](docs/examples/outcome.example.yaml)
+
+### What's here
+
+| Path | What |
+|---|---|
+| `app/` | The Pages app: key setup, passphrase-locked keyring, decrypting dashboard, encrypted check-ins. Vanilla TypeScript, one runtime dependency (`age-encryption`) |
+| `vault-template/` | Contents for your **private** vault repo: Apple Health ingest, run scrubbing, ciphertext guard, weekly review issue. Setup guide in its README |
+| `.github/workflows/pages.yml` | Builds and deploys `app/` to Pages on push to `main` |
+
+### Getting started
+
+1. Create the private vault repo from `vault-template/` (see [its README](vault-template/README.md)).
+2. In this repo: **Settings → Pages → Source: GitHub Actions**, then merge to `main`.
+3. Open the Pages URL and complete setup: generate a key, connect the vault, choose a passphrase.
+
+Local development: `cd app && npm ci && npm run dev` (tests: `npm test`).

@@ -228,9 +228,9 @@ dependencies are kept deliberately small to limit supply-chain exposure.
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| **0 — Foundations** | Key setup flow, vault repo template, encrypt/decrypt round-trip, ciphertext guard | Encrypted manual check-in visible on the dashboard |
+| **0 — Foundations** ✅ | Key setup flow, vault repo template, encrypt/decrypt round-trip, ciphertext guard | Encrypted manual check-in visible on the dashboard |
 | **1 — Manual MVP** | Outcome/milestone model, templates, pace engine, dashboard | Track 2–3 outcomes end to end with manual data |
-| **2 — Apple Health** | Shortcut → dispatch ingest, self-deleting run, sleep/HR/weight/workout metrics | Health milestones update automatically |
+| **2 — Apple Health** 🟡 ingest built; Shortcut and metrics UI to test | Shortcut → dispatch ingest, self-deleting run, sleep/HR/weight/workout metrics | Health milestones update automatically |
 | **3 — Plaid** | Local link script, daily balance pull, net worth / savings / debt metrics, OFX/CSV fallback | Daily balances arrive without touching anything |
 | **4 — Weekly review** | Content-free review issue, review screen, "back on track" suggestions | A 2-minute weekly review replaces manual tallying |
 | **5 — Hardening** | Multi-device keys, key rotation, padding, compaction, backup/restore drill | A documented and tested recovery from a lost device |

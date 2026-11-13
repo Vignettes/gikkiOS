@@ -1,0 +1,13 @@
+{
+  "name": "gikkios-vault",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test scripts/test.mjs",
+    "check": "node scripts/check-ciphertext.mjs"
+  },
+  "dependencies": {
+    "age-encryption": "0.3.1"
+  }
+}

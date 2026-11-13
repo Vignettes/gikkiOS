@@ -1,0 +1,29 @@
+name: Weekly review
+# Opens a content-free "Weekly review ready" issue. GitHub's own notifications deliver it.
+# Cron is UTC: 22:00 UTC Sunday = 17:00 US Eastern (standard time). Adjust to taste.
+on:
+  schedule:
+    - cron: "0 22 * * 0"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  open-review:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open review issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_URL: ${{ vars.GIKKIOS_APP_URL }}
+        run: |
+          gh label create weekly-review --repo "$GITHUB_REPOSITORY" --color 0E8A16 2>/dev/null || true
+          week=$(date -u +%G-W%V)
+          title="Weekly review ready: $week"
+          if gh issue list --repo "$GITHUB_REPOSITORY" --label weekly-review --state open --json title -q '.[].title' | grep -qx "$title"; then
+            echo "already open"; exit 0
+          fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --label weekly-review --title "$title" \
+            --body "Open gikkiOS to review: ${APP_URL:-<set the GIKKIOS_APP_URL repository variable>}"

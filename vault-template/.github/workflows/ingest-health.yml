@@ -1,0 +1,40 @@
+name: Ingest health
+# Triggered by the iOS Shortcut: POST /repos/<you>/<vault>/dispatches {"event_type":"health",...}
+on:
+  repository_dispatch:
+    types: [health]
+
+permissions: {}
+
+concurrency:
+  group: vault-write
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    environment: ingest            # holds AGE_RECIPIENTS; add protection rules in Settings
+    permissions:
+      contents: write
+    steps:
+      # First-party actions only, pinned to commit SHAs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Validate, encrypt, write
+        env:
+          AGE_RECIPIENTS: ${{ secrets.AGE_RECIPIENTS }}
+        run: node scripts/ingest-dispatch.mjs
+      - run: npm run check
+      - name: Commit ciphertext
+        run: |
+          git config user.name "gikkios-ingest"
+          git config user.email "gikkios-ingest@users.noreply.github.com"
+          git add data
+          git commit -q -m "ingest: apple_health"
+          for i in 1 2 3 4; do git pull -q --rebase && git push -q && exit 0; sleep $((i*5)); done
+          exit 1
