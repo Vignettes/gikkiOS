@@ -1,35 +1,18 @@
 import { newIdentity, openJSON, recipientOf, sealJSON } from "./crypto";
-import { fetchBlob, listDataFiles, pool, putFile } from "./github";
+import { todayLocal } from "./dates";
+import { errorBox, guarded, h, val } from "./dom";
+import { fmt, type SeriesIndex } from "./engine";
+import { fetchBlob, listVault, pool, putFile } from "./github";
 import { forgetDevice, hasKeyring, type Keyring, saveKeyring, unlockKeyring, validateKeyring } from "./keyring";
 import { manualSnapshot, type MetricSummary, type Snapshot, summarize } from "./model";
+import { emptyDoc, type OutcomesDoc } from "./outcomes";
+import { type OutcomesCtx, outcomesSection } from "./views/outcomes";
 
 const AUTO_LOCK_MS = 10 * 60_000;
+const OUTCOMES_PATH = "config/outcomes.age";
 const app = document.getElementById("app")!;
-
-// ---------- tiny safe DOM helper (text only, never innerHTML) ----------
-type Child = Node | string | null | undefined | false;
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  attrs: Record<string, string | boolean | ((e: Event) => void)> = {},
-  ...children: Child[]
-): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (v === true) el.setAttribute(k, "");
-    else if (v !== false) el.setAttribute(k, v);
-  }
-  for (const c of children) if (c) el.append(c);
-  return el;
-}
-const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim();
-function render(...nodes: Node[]) { app.replaceChildren(...nodes); }
-function errorBox() { return h("p", { class: "error", role: "alert" }); }
-async function guarded(btn: HTMLButtonElement, err: HTMLElement, fn: () => Promise<void>) {
-  btn.disabled = true; err.textContent = "";
-  try { await fn(); } catch (e) { err.textContent = (e as Error).message; } finally { btn.disabled = false; }
-}
-const today = () => new Date().toISOString().slice(0, 10);
+function render(...nodes: (Node | null)[]) { app.replaceChildren(...nodes.filter((n): n is Node => n !== null)); window.scrollTo(0, 0); }
+const today = () => todayLocal();
 
 // ---------- session ----------
 let session: Keyring | null = null;
@@ -77,7 +60,7 @@ function setupScreen() {
     };
     validateKeyring(k);
     save.textContent = "Checking vault access…";
-    await listDataFiles(k); // fail early on bad repo/token
+    await listVault(k); // fail early on bad repo/token
     save.textContent = "Encrypting keyring…";
     await saveKeyring(k, val("pass"));
     session = k; bumpIdle(); await dashboard();
@@ -148,55 +131,93 @@ function statusPill(s: MetricSummary) {
   return s.stale ? h("span", { class: "pill stale" }, `stale ${s.ageDays}d`) : h("span", { class: "pill fresh" }, "fresh");
 }
 
-async function loadSnapshots(k: Keyring, progress: (s: string) => void) {
-  const files = await listDataFiles(k);
+interface Loaded {
+  summaries: MetricSummary[];
+  index: SeriesIndex;
+  doc: OutcomesDoc;
+  docSha?: string;
+  docError?: string;
+  status: string;
+  warning?: string;
+}
+let loaded: Loaded | null = null;
+
+async function loadVault(k: Keyring, progress: (s: string) => void): Promise<Loaded> {
+  const files = await listVault(k);
+  const dataFiles = files.filter((f) => f.path.startsWith("data/"));
+  const cfg = files.find((f) => f.path === OUTCOMES_PATH);
   let done = 0, failed = 0;
-  const snaps = await pool(files, 6, async (f) => {
+  const snaps = await pool(dataFiles, 6, async (f) => {
     try { return await openJSON<Snapshot>(await fetchBlob(k, f.sha), k.identity); }
     catch { failed++; return null; }
-    finally { progress(`Decrypting ${++done}/${files.length}…`); }
+    finally { progress(`Decrypting ${++done}/${dataFiles.length}…`); }
   });
-  return { snapshots: snaps.filter((s): s is Snapshot => s !== null), files: files.length, failed };
+  let doc = emptyDoc(), docError: string | undefined;
+  if (cfg) {
+    try { doc = await openJSON<OutcomesDoc>(await fetchBlob(k, cfg.sha), k.identity); }
+    catch { docError = "Outcomes file could not be decrypted with this device's key. Editing is disabled to avoid overwriting it."; }
+  }
+  const summaries = summarize(snaps.filter((s): s is Snapshot => s !== null), today());
+  return {
+    summaries,
+    index: new Map(summaries.map((s) => [s.metric, s.series])),
+    doc, docSha: cfg?.sha, docError,
+    status: `${dataFiles.length} encrypted snapshot(s) · ${summaries.length} metric(s)`,
+    warning: failed ? `${failed} file(s) could not be decrypted with this device's key. Check that AGE_RECIPIENTS includes this device's public key.` : undefined,
+  };
 }
 
 async function dashboard() {
   const k = session!;
   const status = h("p", { class: "muted" }, "Loading vault…");
-  const err = errorBox();
-  const body = h("div");
-  const refresh = h("button", { onclick: () => void dashboard() }, "Refresh");
-  render(
-    h("header", {}, h("div", {}, h("h1", {}, "Outcomes"), h("span", { class: "muted" }, k.repo)),
-      h("div", { class: "row" }, refresh, h("button", { onclick: lock }, "Lock"))),
-    status, err, body,
-  );
-
-  let summaries: MetricSummary[] = [];
+  render(header(k), status);
   try {
-    const r = await loadSnapshots(k, (s) => (status.textContent = s));
-    summaries = summarize(r.snapshots);
-    status.textContent = `${r.files} encrypted snapshot(s), ${summaries.length} metric(s).`;
-    if (r.failed) err.textContent = `${r.failed} file(s) could not be decrypted with this device's key. Check that AGE_RECIPIENTS includes this device's public key.`;
+    loaded = await loadVault(k, (s) => (status.textContent = s));
+    showDashboard();
   } catch (e) {
-    status.textContent = ""; err.textContent = (e as Error).message;
+    render(header(k), h("p", { class: "error" }, (e as Error).message));
   }
+}
+
+function header(k: Keyring) {
+  return h("header", {}, h("div", {}, h("h1", {}, "gikkiOS"), h("span", { class: "muted" }, k.repo)),
+    h("div", { class: "row" }, h("button", { onclick: () => void dashboard() }, "Refresh"), h("button", { onclick: lock }, "Lock")));
+}
+
+function outcomesCtx(k: Keyring, L: Loaded): OutcomesCtx {
+  return {
+    doc: L.doc, index: L.index, summaries: L.summaries, today: today(),
+    mount: (node) => render(header(k), node),
+    back: () => showDashboard(),
+    save: async (doc, message) => {
+      if (L.docError) throw new Error(L.docError);
+      const sealed = await sealJSON(doc, k.recipients);
+      L.docSha = await putFile(k, OUTCOMES_PATH, sealed, message, L.docSha);
+      L.doc = doc;
+      showDashboard();
+    },
+  };
+}
+
+function showDashboard() {
+  const k = session!, L = loaded!;
+  const summaries = L.summaries;
 
   const table = summaries.length
     ? h("table", {},
-        h("thead", {}, h("tr", {}, ...["Metric", "Latest", "", "Date", "Source", "Trend (30)", "Status"].map((t) => h("th", {}, t)))),
-        h("tbody", {}, ...summaries.map((s) => h("tr", {},
+        h("thead", {}, h("tr", {}, ["Metric", "Latest", "Date", "Source", "Trend (30)", "Status"].map((t) => h("th", {}, t)))),
+        h("tbody", {}, summaries.map((s) => h("tr", {},
           h("td", {}, s.metric),
-          h("td", { class: "num" }, s.latest.value.toLocaleString()),
-          h("td", { class: "muted" }, s.unit),
+          h("td", { class: "num" }, fmt(s.latest.value, s.unit)),
           h("td", {}, s.latest.t),
           h("td", { class: "muted" }, s.latest.source),
           h("td", {}, sparkline(s)),
-          h("td", {}, statusPill(s)))))) 
+          h("td", {}, statusPill(s))))))
     : h("p", { class: "muted" }, "No data yet. Record a check-in below, or set up the Apple Health Shortcut (vault README).");
 
   const ciErr = errorBox();
   const ciOk = h("p", { class: "ok" });
-  const known = h("datalist", { id: "metrics" }, ...summaries.map((s) => h("option", { value: s.metric })));
+  const known = h("datalist", { id: "metrics" }, summaries.map((s) => h("option", { value: s.metric })));
   const save: HTMLButtonElement = h("button", { class: "primary", onclick: () => guarded(save, ciErr, async () => {
     ciOk.textContent = "";
     const metric = val("ciMetric"), t = val("ciDate") || today();
@@ -210,21 +231,31 @@ async function dashboard() {
     setTimeout(() => void dashboard(), 600);
   }) }, "Save check-in");
 
-  body.replaceChildren(
-    h("section", { class: "card" }, h("h2", {}, "Metrics"), table),
+  // Suggest metrics that outcomes track but that have no data yet.
+  const tracked = new Set(L.doc.outcomes.filter((o) => !o.archived).flatMap((o) => o.milestones.flatMap((m) => ("metric" in m ? [m.metric] : []))));
+  const missing = [...tracked].filter((m) => !L.index.has(m));
+
+  render(
+    header(k),
+    h("p", { class: "muted" }, `${L.status} · ${L.doc.outcomes.filter((o) => !o.archived).length} outcome(s)`),
+    L.warning ? h("p", { class: "error" }, L.warning) : null,
+    L.docError ? h("p", { class: "error" }, L.docError) : null,
+    outcomesSection(outcomesCtx(k, L)),
     h("section", { class: "card" },
       h("h2", {}, "Check-in"),
+      missing.length ? h("p", { class: "muted" }, "Waiting for data: ", missing.join(", ")) : null,
       known,
       h("div", { class: "row" },
-        h("label", {}, "Metric", h("input", { id: "ciMetric", list: "metrics", placeholder: "finance.emergency_fund", autocomplete: "off" })),
+        h("label", {}, "Metric", h("input", { id: "ciMetric", list: "metrics", placeholder: missing[0] ?? "finance.emergency_fund", autocomplete: "off" })),
         h("label", {}, "Value", h("input", { id: "ciValue", inputmode: "decimal", autocomplete: "off" })),
         h("label", {}, "Unit", h("input", { id: "ciUnit", placeholder: "USD", autocomplete: "off" })),
         h("label", {}, "Date", h("input", { id: "ciDate", type: "date", value: today() }))),
       h("p", {}, save), ciErr, ciOk),
+    h("details", { class: "card" }, h("summary", {}, `Metrics (${summaries.length})`), table),
     h("details", { class: "card" },
       h("summary", {}, "Keys on this device"),
       h("p", { class: "muted" }, "New data is encrypted to these public keys. The vault's AGE_RECIPIENTS secret should list the same ones."),
-      ...k.recipients.map((r) => h("p", {}, h("code", { class: "key" }, r)))),
+      k.recipients.map((r) => h("p", {}, h("code", { class: "key" }, r)))),
   );
 }
 

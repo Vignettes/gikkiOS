@@ -42,3 +42,44 @@ svg.spark { width: 100px; height: 24px; display: block; }
 svg.spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 details summary { cursor: pointer; }
 input.inline { width: auto; margin-right: 6px; }
+
+/* ---- outcomes ---- */
+:root { --muted-bg: #f5f5f4; }
+@media (prefers-color-scheme: dark) { :root { --muted-bg: #292524; } }
+.row.between { justify-content: space-between; align-items: center; flex-wrap: nowrap; }
+h3 { font-size: 17px; margin: 0; }
+button.small { padding: 3px 10px; font-size: 13px; }
+.pill.s-achieved, .pill.s-on_track { color: var(--good); }
+.pill.s-at_risk, .pill.s-stale { color: var(--warn); }
+.pill.s-off_track, .pill.s-missed { color: var(--bad); }
+.pill.s-no_data { color: var(--muted); }
+section.outcomes > header { margin: 24px 0 4px; }
+section.outcomes > header h2 { margin: 0; }
+.card.outcome { border-left-width: 4px; }
+.s-border-achieved, .s-border-on_track { border-left-color: var(--good); }
+.s-border-at_risk, .s-border-stale { border-left-color: var(--warn); }
+.s-border-off_track, .s-border-missed { border-left-color: var(--bad); }
+.s-border-no_data { border-left-color: var(--line); }
+.why { margin: 6px 0; font-style: italic; color: var(--muted); }
+.progress { gap: 10px; margin: 8px 0; }
+.bar { flex: 1; height: 8px; background: var(--muted-bg); border-radius: 999px; overflow: hidden; }
+.bar > span { display: block; height: 100%; width: 0; background: var(--muted); }
+.bar > span.s-achieved, .bar > span.s-on_track { background: var(--good); }
+.bar > span.s-at_risk, .bar > span.s-stale { background: var(--warn); }
+.bar > span.s-off_track, .bar > span.s-missed { background: var(--bad); }
+.nextline { margin: 6px 0 10px; }
+.hint { font-size: 14px; margin-top: 2px; }
+.hint::before { content: "→ "; color: var(--muted); }
+ul.milestones { list-style: none; padding: 0; margin: 10px 0; }
+ul.milestones li { padding: 8px 0; border-top: 1px solid var(--line); }
+ul.milestones li.next { background: var(--muted-bg); margin: 0 -8px; padding: 8px; border-radius: 6px; }
+.templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+button.tile { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 14px; gap: 2px; }
+button.tile:hover { border-color: var(--accent); }
+.mrow { border-top: 1px solid var(--line); padding: 12px 0; }
+.mrow:first-child { border-top: none; }
+.mrow .row > label { flex: 1 1 95px; }
+.mrow .row > label:has(input[list]) { flex: 2 1 170px; }
+.editor section label { margin-bottom: 8px; }
+.empty { text-align: center; }
+.mrow .row > label:last-child { flex: 0 1 70px; }

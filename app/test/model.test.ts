@@ -5,7 +5,7 @@ const snap = (source: string, at: string, pts: [string, string, number][], kind:
   ({ v: 1, source, kind, ingested_at: at, points: pts.map(([metric, t, value]) => ({ metric, t, value, unit: "u" })) });
 
 describe("summarize", () => {
-  const now = new Date("2026-11-13T12:00:00Z");
+  const now = "2026-11-13";
 
   it("groups by metric, sorts by day, latest ingest wins per day", () => {
     const s = summarize([

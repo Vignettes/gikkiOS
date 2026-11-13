@@ -28,11 +28,14 @@ async function gh(ref: VaultRef, path: string, init: RequestInit = {}, accept = 
   return res;
 }
 
-export async function listDataFiles(ref: VaultRef): Promise<{ path: string; sha: string }[]> {
+export interface VaultFile { path: string; sha: string }
+
+/** All encrypted files in the vault (data/ and config/). */
+export async function listVault(ref: VaultRef): Promise<VaultFile[]> {
   const res = await gh(ref, `/repos/${ref.repo}/git/trees/${encodeURIComponent(ref.branch)}?recursive=1`);
   const body = (await res.json()) as { tree: { path: string; sha: string; type: string }[]; truncated: boolean };
   if (body.truncated) console.warn("vault tree truncated: compaction needed");
-  return body.tree.filter((e) => e.type === "blob" && /^data\/.+\.age$/.test(e.path));
+  return body.tree.filter((e) => e.type === "blob" && /^(data|config)\/.+\.age$/.test(e.path));
 }
 
 export async function fetchBlob(ref: VaultRef, sha: string): Promise<Uint8Array> {
@@ -46,12 +49,27 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-export async function putFile(ref: VaultRef, path: string, bytes: Uint8Array, message: string): Promise<void> {
-  if (!/^data\/\d{4}\/\d{2}\/[\w.-]+\.age$/.test(path)) throw new Error("Refusing to write outside data/");
-  await gh(ref, `/repos/${ref.repo}/contents/${path}`, {
-    method: "PUT",
-    body: JSON.stringify({ message, content: toBase64(bytes), branch: ref.branch }),
-  });
+const WRITABLE = /^(data\/\d{4}\/\d{2}\/[\w.-]+\.age|config\/[\w.-]+\.age)$/;
+
+export class ConflictError extends Error {}
+
+/**
+ * Create or update a file. Pass `sha` when updating: GitHub rejects the write if the file
+ * changed since (another device saved first), which surfaces as ConflictError.
+ * Returns the new blob sha.
+ */
+export async function putFile(ref: VaultRef, path: string, bytes: Uint8Array, message: string, sha?: string): Promise<string> {
+  if (!WRITABLE.test(path)) throw new Error("Refusing to write outside data/ or config/");
+  try {
+    const res = await gh(ref, `/repos/${ref.repo}/contents/${path}`, {
+      method: "PUT",
+      body: JSON.stringify({ message, content: toBase64(bytes), branch: ref.branch, ...(sha ? { sha } : {}) }),
+    });
+    return ((await res.json()) as { content: { sha: string } }).content.sha;
+  } catch (e) {
+    if (/GitHub (409|422)/.test((e as Error).message)) throw new ConflictError("Outcomes were changed on another device. Refresh, then redo your edit.");
+    throw e;
+  }
 }
 
 /** Map with bounded concurrency to stay polite to the API. */

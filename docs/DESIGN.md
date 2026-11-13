@@ -75,8 +75,10 @@ Outcome ──< Milestone ──> Metric ──> Source binding (connector + que
 - **MetricPoint**: one normalized observation. Every point records its source and whether it was
   `auto` or `manual`. This keeps provenance visible.
 
-The schema is in `docs/examples/outcome.example.yaml`. It is stored encrypted as
-`config/outcomes.age` and edited through the app, not by hand.
+The schema is defined in `app/src/outcomes.ts` (`docs/examples/outcome.example.yaml` shows the shape). It is stored
+encrypted as `config/outcomes.age` and edited through the app, not by hand. Saves are guarded by the file's
+blob SHA, so two devices can't silently overwrite each other. Metrics are referenced by name
+(`finance.emergency_fund`, `health.rhr`). Derived metrics such as net worth arrive with Plaid.
 
 ## 4. Data ingestion (connectors)
 
@@ -145,18 +147,23 @@ Ingestion rules:
 
 All evaluation runs in the browser after unlock.
 
-**Milestone status by pace projection.** For each milestone:
+**Milestone status** (implemented in `app/src/engine.ts`):
 
-1. `required_rate = (target − current) / time_remaining`
-2. `actual_rate` = slope of an EWMA over a lookback window (default 28 days; configurable per metric)
-3. `projected = current + actual_rate × time_remaining`
-4. Status:
-   - 🟢 **on track** if the projection meets the target
-   - 🟡 **at risk** if it reaches ≥ 85% of the required progress
-   - 🔴 **off track** otherwise
-   - ⚪ **stale** if no data has arrived within 2× the expected cadence. This is a data problem, not a goal problem
+| Kind | Current value | Pace / projection | Status |
+|---|---|---|---|
+| `threshold` | Latest value, optionally a trailing *N*-day mean (`smooth`) for noisy metrics like weight or RHR | Least-squares slope over the last 28 days; widened to the last 3 readings if the window is sparse (monthly check-ins). `projected = current + slope × days_left` | 🟢 projection reaches target · 🟡 ≥ 85% of the needed change · 🔴 below that |
+| `cumulative` | Sum of daily values from start to today | `sum / elapsed × total_days` | same ratios against the target |
+| `frequency` | Weekly (Mon–Sun) sum vs `at_least`; consecutive qualifying weeks | Enough weeks left to finish the streak? | 🟢 last week qualified · 🟡 last week missed but still feasible · 🔴 infeasible before due |
+| `boolean` | Marked done | Due date | 🟢 > 14 days away · 🟡 ≤ 14 days · missed if overdue |
 
-**Outcome health** is the weighted roll-up of its milestones. Status changes are highlighted.
+Every kind also reports ✅ **achieved**, **missed** (past due), **needs data**, or ⚪ **stale**
+(automatic source silent for more than 3 days: a data problem, not a goal problem).
+
+Each milestone carries a one-line **hint**: the rate needed against the current rate, and the date the
+current pace would reach the target. For example: "Needs +$870/mo (now +$720/mo), or move the date to
+Feb 2028". Rates are shown per month for horizons over 90 days and per week otherwise.
+
+**Outcome health** is the weighted roll-up of its *open* milestones (on track = 1, at risk = 0.5, off track or missed = 0). An outcome is on track at a score of 0.85 or more and at risk at 0.5 or more. Achieved milestones count toward progress % but don't mask current trouble. The dashboard sorts outcomes worst-first.
 
 **Weekly review** (the only notification):
 - A weekly scheduled workflow in the vault (Sunday 17:00 local) opens an issue titled
@@ -229,7 +236,7 @@ dependencies are kept deliberately small to limit supply-chain exposure.
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | **0 — Foundations** ✅ | Key setup flow, vault repo template, encrypt/decrypt round-trip, ciphertext guard | Encrypted manual check-in visible on the dashboard |
-| **1 — Manual MVP** | Outcome/milestone model, templates, pace engine, dashboard | Track 2–3 outcomes end to end with manual data |
+| **1 — Outcomes & milestones** ✅ | Outcome/milestone model, templates, pace engine, dashboard | Track 2–3 outcomes end to end with manual data |
 | **2 — Apple Health** 🟡 ingest built; Shortcut and metrics UI to test | Shortcut → dispatch ingest, self-deleting run, sleep/HR/weight/workout metrics | Health milestones update automatically |
 | **3 — Plaid** | Local link script, daily balance pull, net worth / savings / debt metrics, OFX/CSV fallback | Daily balances arrive without touching anything |
 | **4 — Weekly review** | Content-free review issue, review screen, "back on track" suggestions | A 2-minute weekly review replaces manual tallying |

@@ -29,19 +29,20 @@ export interface MetricSummary {
   stale: boolean;
 }
 
+import { dayNum, todayLocal } from "./dates";
+
 export const METRIC_RE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/;
-const DAY = 86_400_000;
 
 /**
  * Merge snapshots into per-metric daily series. If several snapshots report the same
  * metric/day, the most recently ingested one wins (re-sent Shortcut runs, corrections).
  */
-export function summarize(snapshots: Snapshot[], now = new Date(), staleAfterDays = 3): MetricSummary[] {
+export function summarize(snapshots: Snapshot[], today = todayLocal(), staleAfterDays = 3): MetricSummary[] {
   const byKey = new Map<string, SeriesPoint>();
   for (const s of snapshots) {
     if (s?.v !== 1 || !Array.isArray(s.points)) continue;
     for (const p of s.points) {
-      if (!METRIC_RE.test(p.metric) || !Number.isFinite(p.value)) continue;
+      if (!METRIC_RE.test(p.metric) || !Number.isFinite(p.value) || !/^\d{4}-\d{2}-\d{2}$/.test(p.t)) continue;
       const key = `${p.metric}|${p.t}`;
       const prev = byKey.get(key);
       if (!prev || prev.ingested_at < s.ingested_at) {
@@ -55,12 +56,12 @@ export function summarize(snapshots: Snapshot[], now = new Date(), staleAfterDay
     g.push(p);
     groups.set(p.metric, g);
   }
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const t0 = dayNum(today);
   return [...groups.entries()]
     .map(([metric, series]) => {
       series.sort((a, b) => a.t.localeCompare(b.t));
       const latest = series[series.length - 1];
-      const ageDays = Math.max(0, Math.round((today - Date.parse(latest.t)) / DAY));
+      const ageDays = Math.max(0, t0 - dayNum(latest.t));
       return {
         metric,
         unit: latest.unit,
