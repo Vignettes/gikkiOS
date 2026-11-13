@@ -1,6 +1,6 @@
 # gikkiOS — Outcomes: Design
 
-Status: draft v0.1 · 2026-11-13
+Status: draft v0.2 · 2026-11-13. Decisions in §9 resolved.
 
 ## 1. Problem
 
@@ -27,8 +27,8 @@ Constraint: hosted on GitHub (Pages + Actions), with no servers or databases of 
  ┌────────────────────────── private repo: gikkiOS-vault ─────────────────────────┐
  │                                                                                  │
  │  Actions (cron, e.g. 06:00 daily)                                                │
- │   ├─ connector: finance (SimpleFIN / Plaid / CSV)  ─┐                            │
- │   ├─ connector: health  (Oura / Withings / Fitbit)  ├─► normalize ─► encrypt ─┐  │
+ │   ├─ connector: finance (Plaid / OFX-CSV)          ─┐                            │
+ │   ├─ connector: health  (Apple Health via dispatch) ├─► normalize ─► encrypt ─┐  │
  │   ├─ connector: activity (Strava / GitHub / ...)    │    to metric   (age,    │  │
  │   └─ inbox: repository_dispatch (iOS Shortcut,     ─┘    points    public    │  │
  │            Apple Health export, manual check-in)                   key only)  │  │
@@ -36,7 +36,7 @@ Constraint: hosted on GitHub (Pages + Actions), with no servers or databases of 
  │   data/  YYYY/MM/DD-<connector>-<runid>.age   (append-only snapshots)            │
  │   config/outcomes.age                         (outcomes, milestones, bindings)   │
  └──────────────────────────────────────────┬───────────────────────────────────────┘
-                                            │ GitHub API + fine-grained PAT (read-only)
+                                            │ GitHub API + fine-grained PAT (vault only)
  ┌──────────────── public repo: gikkiOS (this repo) → GitHub Pages ────────────────┐
  │  Static app shell (no data, no secrets)                                          │
  │   unlock (passphrase → age identity) → fetch ciphertext → decrypt in memory      │
@@ -90,16 +90,48 @@ interface Connector {
 }
 ```
 
-Recommended first connectors, chosen for low friction and low cost for a single user:
+Chosen connectors:
 
 | Domain | Source | Notes |
 |---|---|---|
-| Finance | **SimpleFIN Bridge** | About $15/yr, read-only, one access URL, covers most US banks. Simplest personal option |
-| Finance | Plaid | Wider coverage and richer data, but needs a developer account and approval for production access |
-| Finance | CSV/OFX drop | Fallback for any institution. Upload in the app; it is encrypted in the browser |
-| Health | Oura, Withings, Fitbit/Google Health, Strava | OAuth APIs. Refresh tokens are stored as Actions secrets and rotated by the workflow |
-| Health | **Apple Health** | Apple Health has no cloud API. An iOS Shortcut (or the Health Auto Export app) posts daily aggregates to `repository_dispatch` |
+| Finance | **Plaid** (primary) | Chosen for coverage of smaller banks and credit unions. Needs a Plaid developer account and production access approval. Check current pricing and limits for personal use before committing |
+| Finance | OFX/QFX/CSV drop | Fallback for any institution Plaid doesn't reach. Upload in the app; encrypted in the browser before upload |
+| Health | **Apple Health** | No cloud API. An iOS Shortcut posts daily aggregates to `repository_dispatch` (see §4.2) |
 | Any | Manual check-in | One-tap entry in the app, encrypted client-side and committed through the PAT |
+
+Later candidates: Oura, Withings, Fitbit, Strava (OAuth APIs), SimpleFIN as a cheaper secondary aggregator.
+
+### 4.1 Plaid setup (one time, local)
+
+Plaid Link's token exchange needs the Plaid `secret`, which must never reach the browser or the
+public Pages site. Linking is therefore a **one-time local script**:
+
+1. `node vault/scripts/plaid-link.mjs` starts a localhost-only page with Plaid Link.
+2. You log in to each bank. The script exchanges `public_token` → `access_token` locally.
+3. You save the `access_token`s as the Actions secret `PLAID_ACCESS_TOKENS` (JSON array) in the
+   `ingest` environment. Nothing is written to disk.
+
+The daily job calls `/accounts/balance/get` (or the cheaper `/accounts/get` cached balances) and keeps
+**balances per account per day only**. Transactions are not pulled unless a milestone needs them
+(e.g. a spending cap). Even then, they are aggregated to category totals per day before encryption.
+
+### 4.2 Apple Health path
+
+```
+iPhone (Shortcut, daily automation at 21:00)
+  └─ Find Health Samples (steps, resting HR, sleep, weight, workouts) → daily aggregates
+  └─ POST https://api.github.com/repos/<you>/gikkiOS-vault/dispatches
+       { "event_type": "health", "client_payload": { "d": "2026-11-13", "m": { "rhr": 57, ... } } }
+         Authorization: fine-grained PAT, vault repo only, Contents: write
+GitHub Actions (on: repository_dispatch)
+  └─ validate schema → encrypt with AGE_RECIPIENT → commit data/YYYY/MM/DD-apple_health-<run>.age
+  └─ delete its own workflow run (removes the plaintext event payload from run history)
+```
+
+Trade-off: the dispatch payload is plaintext inside GitHub until the run deletes itself, usually under
+a minute, and only in the private repo. Payloads are limited to daily aggregates. The phone holds a PAT
+that can write to the vault. Set it to expire (≤ 1 year) and revoke it if the phone is lost.
+Alternative: the Health Auto Export app can do the same POST with less Shortcut wiring.
 
 Ingestion rules:
 - **Pull aggregates, not raw records**: daily balances rather than transactions, daily averages
@@ -126,13 +158,19 @@ All evaluation runs in the browser after unlock.
 
 **Outcome health** is the weighted roll-up of its milestones. Status changes are highlighted.
 
-**Summaries**:
-- The dashboard has one card per outcome: status, sparkline, the next milestone, and "what would
-  get you back on track". For example: "+$410/mo savings, or move the date to Aug 2027".
-- The weekly digest is generated client-side when you open the app: what changed, what is at risk,
-  and one suggested action.
-- An optional AI narrative is **off by default**. When enabled, it uses your own API key from the
-  browser and sends **derived numbers only** (status, rates, percentages), never balances, accounts or raw health values.
+**Weekly review** (the only notification):
+- A weekly scheduled workflow in the vault (Sunday 17:00 local) opens an issue titled
+  `Weekly review ready`, with **no content** besides a link to the app. GitHub's own notification
+  (email/mobile app) delivers it. The workflow needs no decryption key.
+- The issue is closed automatically when you complete the review in the app (via the PAT), so open
+  issues double as "reviews missed".
+- The review screen shows, in order: status changes since last week, at-risk/off-track milestones with
+  "what would get you back on track" (e.g. "+$410/mo savings, or move the date to Aug 2027"),
+  stale sources, pending manual check-ins, and a single "next action" field you write yourself.
+  Target: 2 minutes.
+
+**AI narrative** is not built for now. If added later it stays **off by default**: your own API key,
+called from the browser, sending derived numbers only (status, rates, percentages).
 
 **Friction reducers**:
 - Outcome templates (emergency fund, debt payoff, net-worth target, weight/body comp, resting HR,
@@ -149,7 +187,7 @@ All evaluation runs in the browser after unlock.
 | Public Pages site is scraped | It contains no data. A strict CSP (`default-src 'self'; connect-src https://api.github.com`), no third-party scripts, and SRI on all assets |
 | Vault repo exposed (misconfig, leaked PAT, GitHub breach) | Everything in it is age ciphertext. File names reveal only date and connector |
 | Malicious or compromised GitHub Action | The ingest job uses **no third-party actions**, only first-party actions pinned by commit SHA. `permissions: contents: write` on that job only. Dependabot and pinned lockfiles |
-| Actions secret leak | Read-only connector credentials (SimpleFIN and Plaid are read-only by design). Secrets live in a protected `ingest` environment. Quarterly rotation reminder |
+| Actions secret leak | Read-only connector credentials (Plaid access tokens cannot move money without separately enabled products). Secrets live in a protected `ingest` environment. Quarterly rotation reminder |
 | Workflow compromised later | It holds only the public key, so it cannot decrypt history. Exposure is limited to future pulls until the secret is revoked |
 | Lost or stolen device | The age identity is wrapped with your passphrase (scrypt) in IndexedDB. Auto-lock after inactivity. Decrypted data is kept in memory only, never in localStorage |
 | Forgotten passphrase or lost key | An offline backup of the age identity (printed or in a password manager). There is **no recovery without it**, by design |
@@ -166,7 +204,7 @@ All evaluation runs in the browser after unlock.
 ### Out of scope / accepted risks
 - GitHub can see access patterns and timing.
 - A compromised browser or extension on an unlocked device can read decrypted data. Mitigation: use a dedicated browser profile.
-- Third-party data providers (SimpleFIN, Oura, ...) hold your data under their own terms.
+- Third-party data providers (Plaid, your banks, Apple) hold your data under their own terms.
 
 ## 7. Repository layout
 
@@ -192,18 +230,17 @@ dependencies are kept deliberately small to limit supply-chain exposure.
 |---|---|---|
 | **0 — Foundations** | Key setup flow, vault repo template, encrypt/decrypt round-trip, ciphertext guard | Encrypted manual check-in visible on the dashboard |
 | **1 — Manual MVP** | Outcome/milestone model, templates, pace engine, dashboard | Track 2–3 outcomes end to end with manual data |
-| **2 — Finance auto-pull** | SimpleFIN connector, net worth, savings rate, debt payoff metrics | Daily balances arrive without touching anything |
-| **3 — Health auto-pull** | Apple Health via Shortcut → dispatch; one OAuth source (Oura/Withings/Fitbit) | Sleep/HR/weight milestones update automatically |
-| **4 — Summaries** | Weekly digest, "back on track" suggestions, optional AI narrative | A 2-minute weekly review replaces manual tallying |
+| **2 — Apple Health** | Shortcut → dispatch ingest, self-deleting run, sleep/HR/weight/workout metrics | Health milestones update automatically |
+| **3 — Plaid** | Local link script, daily balance pull, net worth / savings / debt metrics, OFX/CSV fallback | Daily balances arrive without touching anything |
+| **4 — Weekly review** | Content-free review issue, review screen, "back on track" suggestions | A 2-minute weekly review replaces manual tallying |
 | **5 — Hardening** | Multi-device keys, key rotation, padding, compaction, backup/restore drill | A documented and tested recovery from a lost device |
 
-## 9. Open decisions
+## 9. Decisions
 
-1. **One repo or two?** Two (public app + private vault) works on a free GitHub plan. One private repo
-   with Pages needs GitHub Pro, and the Pages site is still public either way.
-2. **Finance aggregator**: SimpleFIN (simple, cheap) or Plaid (coverage, more setup)?
-3. **Health sources** actually in use: Apple Health, Oura, Garmin, Fitbit, Withings, Strava?
-4. **Notifications**: client-side only (most private) or a push/email digest? A digest means Actions needs a
-   decryption key, which weakens §6. One compromise: a notification that carries no content
-   ("weekly review ready").
-5. **AI summaries**: wanted? If so, are derived numbers only acceptable?
+| # | Question | Decision |
+|---|---|---|
+| 1 | Repo layout | **Two repos**: public `gikkiOS` (app on Pages) + private `gikkiOS-vault` (ciphertext, ingest workflows, secrets) |
+| 2 | Finance aggregator | **Plaid**, for smaller banks; OFX/CSV fallback |
+| 3 | Health sources | **Apple Health** via iOS Shortcut |
+| 4 | Notifications | **Weekly review** issue with no content; no server-side decryption |
+| 5 | AI summaries | Not built now; off by default if ever added |

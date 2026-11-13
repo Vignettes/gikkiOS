@@ -6,14 +6,14 @@ metrics:
   emergency_fund:
     unit: USD
     sources:
-      - connector: simplefin
+      - connector: plaid
         query: { accounts: ["acct:savings-hysa"], field: balance }
     cadence: daily
 
   credit_card_debt:
     unit: USD
     sources:
-      - connector: simplefin
+      - connector: plaid
         query: { accounts: ["acct:cc-1", "acct:cc-2"], field: balance, sign: abs }
     cadence: daily
 
@@ -28,8 +28,8 @@ metrics:
   workouts:
     unit: count
     sources:
-      - connector: strava
-        query: { type: [Run, Ride, Swim] }
+      - connector: apple_health
+        query: { type: workouts, agg: daily_count }
       - connector: manual
     cadence: event
 
