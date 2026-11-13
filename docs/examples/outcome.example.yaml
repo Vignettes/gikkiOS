@@ -1,0 +1,90 @@
+# Example outcome definition. In use, this lives encrypted at config/outcomes.age in the
+# private vault repo and is edited through the app. Values here are illustrative only.
+version: 1
+
+metrics:
+  emergency_fund:
+    unit: USD
+    sources:
+      - connector: simplefin
+        query: { accounts: ["acct:savings-hysa"], field: balance }
+    cadence: daily
+
+  credit_card_debt:
+    unit: USD
+    sources:
+      - connector: simplefin
+        query: { accounts: ["acct:cc-1", "acct:cc-2"], field: balance, sign: abs }
+    cadence: daily
+
+  resting_hr:
+    unit: bpm
+    sources:
+      - connector: apple_health        # via iOS Shortcut -> repository_dispatch
+        query: { type: restingHeartRate, agg: daily_mean }
+    transform: { ewma_days: 7 }
+    cadence: daily
+
+  workouts:
+    unit: count
+    sources:
+      - connector: strava
+        query: { type: [Run, Ride, Swim] }
+      - connector: manual
+    cadence: event
+
+outcomes:
+  - id: financial-cushion
+    title: Six months of expenses saved, no revolving debt
+    why: Freedom to make career choices without fear.
+    category: finance
+    horizon: 2027-12-31
+    milestones:
+      - id: cc-zero
+        kind: threshold
+        metric: credit_card_debt
+        comparator: "<="
+        target: 0
+        due: 2027-03-31
+        weight: 2
+      - id: ef-half
+        kind: threshold
+        metric: emergency_fund
+        comparator: ">="
+        target: 12000
+        due: 2027-06-30
+      - id: ef-full
+        kind: threshold
+        metric: emergency_fund
+        comparator: ">="
+        target: 24000
+        due: 2027-12-31
+
+  - id: cardio-base
+    title: Strong aerobic base
+    why: Keep up with the kids; long-term heart health.
+    category: health
+    horizon: 2027-06-30
+    milestones:
+      - id: consistency
+        kind: frequency
+        metric: workouts
+        at_least: 4
+        per: week
+        for_weeks: 8
+        due: 2027-02-28
+      - id: rhr
+        kind: threshold
+        metric: resting_hr
+        comparator: "<="
+        target: 58
+        due: 2027-06-30
+      - id: physical
+        kind: boolean
+        title: Annual physical with bloodwork
+        due: 2027-01-31
+
+evaluation:
+  lookback_days: 28
+  at_risk_ratio: 0.85
+  stale_after_cadences: 2
