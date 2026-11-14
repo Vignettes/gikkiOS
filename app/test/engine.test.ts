@@ -158,3 +158,17 @@ describe("plan note rounding", () => {
     expect(evaluateMilestone(m, outcome([m], "2026-11-01"), new Map([["health.rhr", rhr]]), TODAY).path!.note).toBe("right on plan");
   });
 });
+
+describe("display statuses", async () => {
+  const { STATUS_LABEL, STATUS_TONE } = await import("../src/engine");
+  it("collapses to four colours and five words", () => {
+    expect(new Set(Object.values(STATUS_TONE))).toEqual(new Set(["good", "warn", "bad", "none"]));
+    expect(new Set(Object.values(STATUS_LABEL))).toEqual(new Set(["done", "on track", "at risk", "off track", "needs data"]));
+    expect(STATUS_LABEL.missed).toBe("off track");
+    expect(STATUS_LABEL.stale).toBe("needs data");
+  });
+  it("stale milestones say what to check", () => {
+    const rhr = pts("health.rhr", [["2026-10-20", 64], ["2026-10-27", 62], ["2026-11-01", 61]], "auto", "bpm");
+    expect(ev(th(55, "2027-06-30", "<=", "health.rhr"), idx(rhr)).hint).toBe("No new data since 2026-11-01. Check that the Apple Health Shortcut is running");
+  });
+});

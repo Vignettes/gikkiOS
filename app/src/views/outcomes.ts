@@ -1,6 +1,6 @@
 import { addMonths, todayLocal } from "../dates";
 import { bound, errorBox, guarded, h, optNum, select } from "../dom";
-import { evaluateOutcome, type MilestoneEval, type OutcomeEval, type PathEval, type SeriesIndex, type Status, STATUS_LABEL } from "../engine";
+import { evaluateOutcome, type MilestoneEval, type OutcomeEval, type PathEval, type SeriesIndex, type Status, STATUS_LABEL, STATUS_TONE, type Tone } from "../engine";
 import { fmt, METRICS, metricLabel } from "../metrics";
 import type { MetricSummary } from "../model";
 import {
@@ -20,10 +20,11 @@ export interface OutcomesCtx {
 }
 
 const SEVERITY: Status[] = ["missed", "off_track", "at_risk", "stale", "no_data", "on_track", "achieved"];
-const pill = (s: Status) => h("span", { class: `pill s-${s}` }, STATUS_LABEL[s]);
+const tone = (s: Status) => `t-${STATUS_TONE[s]}`;
+const pill = (s: Status) => h("span", { class: `pill ${tone(s)}` }, STATUS_LABEL[s]);
 const bar = (p: number, s: Status) =>
   h("div", { class: "bar", role: "progressbar", "aria-valuenow": Math.round(p * 100), "aria-valuemin": 0, "aria-valuemax": 100 },
-    h("span", { class: `s-${s}`, "data-w": Math.round(p * 100) }));
+    h("span", { class: tone(s), "data-w": Math.round(p * 100) }));
 
 /** Sets bar widths without inline style attributes (blocked by CSP): uses CSSOM, which CSP allows. */
 function sizeBars(root: ParentNode) {
@@ -42,14 +43,18 @@ export function outcomesSection(ctx: OutcomesCtx): Node {
     .map((o) => evaluateOutcome(o, ctx.index, ctx.today, ctx.doc.settings))
     .sort((a, b) => SEVERITY.indexOf(a.status) - SEVERITY.indexOf(b.status) || a.outcome.horizon.localeCompare(b.outcome.horizon));
 
-  const counts = new Map<Status, number>();
-  for (const e of evals) counts.set(e.status, (counts.get(e.status) ?? 0) + 1);
+  // Summary strip counts by what the user sees (label + colour), worst first.
+  const counts = new Map<string, { n: number; t: Tone }>();
+  for (const s of SEVERITY) for (const e of evals) if (e.status === s) {
+    const k = STATUS_LABEL[s];
+    counts.set(k, { n: (counts.get(k)?.n ?? 0) + 1, t: STATUS_TONE[s] });
+  }
 
   const section = h("section", { class: "outcomes" },
     h("header", {},
       h("h2", {}, "Outcomes"),
       h("div", { class: "row" },
-        ...SEVERITY.filter((s) => counts.get(s)).map((s) => h("span", { class: `pill s-${s}` }, `${counts.get(s)} ${STATUS_LABEL[s]}`)),
+        ...[...counts].map(([label, c]) => h("span", { class: `pill t-${c.t}` }, `${c.n} ${label}`)),
         h("button", { class: "primary", onclick: () => openWizard(ctx) }, "New outcome"))),
     evals.length ? evals.map((e) => outcomeCard(ctx, e))
       : h("div", { class: "card empty" },
@@ -172,7 +177,7 @@ function logPanel(ctx: OutcomesCtx, o: Outcome): Node | null {
 
 function outcomeCard(ctx: OutcomesCtx, e: OutcomeEval): Node {
   const o = e.outcome;
-  return h("article", { class: `card outcome s-border-${e.status}` },
+  return h("article", { class: `card outcome b-${STATUS_TONE[e.status]}` },
     h("div", { class: "row between" },
       h("div", {}, h("h3", {}, o.title), h("span", { class: "muted" }, `${o.category} · by ${o.horizon}`)),
       pill(e.status)),

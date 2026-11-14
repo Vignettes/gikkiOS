@@ -11,9 +11,14 @@ export { fmt };
 
 export type Status = "achieved" | "on_track" | "at_risk" | "off_track" | "missed" | "stale" | "no_data";
 
+/** Display: four colours, five words. The engine keeps finer statuses for hints and sorting. */
+export type Tone = "good" | "warn" | "bad" | "none";
 export const STATUS_LABEL: Record<Status, string> = {
-  achieved: "achieved", on_track: "on track", at_risk: "at risk", off_track: "off track",
-  missed: "missed", stale: "stale data", no_data: "needs data",
+  achieved: "done", on_track: "on track", at_risk: "at risk", off_track: "off track",
+  missed: "off track", stale: "needs data", no_data: "needs data",
+};
+export const STATUS_TONE: Record<Status, Tone> = {
+  achieved: "good", on_track: "good", at_risk: "warn", off_track: "bad", missed: "bad", stale: "none", no_data: "none",
 };
 
 export interface MilestoneEval {
@@ -191,6 +196,13 @@ function boolean(m: BooleanMilestone, today: number): MilestoneEval {
   return { milestone: m, status, progress: 0, summary, hint: left <= 14 ? "Schedule it, or mark it done" : undefined };
 }
 
+function staleHint(e: MilestoneEval, series: SeriesPoint[]): MilestoneEval {
+  if (e.status !== "stale" || !series.length) return e;
+  const last = series[series.length - 1];
+  const source = last.source === "apple_health" ? "the Apple Health Shortcut" : last.source;
+  return { ...e, hint: `No new data since ${last.t}. Check that ${source} is running` };
+}
+
 /**
  * Where the value stands against the planned path (start → checkpoints → target),
  * and which checkpoints were met on their dates.
@@ -246,11 +258,11 @@ export function evaluateMilestone(m: Milestone, o: Outcome, idx: SeriesIndex, to
   switch (m.kind) {
     case "threshold": {
       const series = idx.get(m.metric) ?? [];
-      return { ...threshold(m, o, series, t, s), path: evaluatePath(m, o, series, t) };
+      return staleHint({ ...threshold(m, o, series, t, s), path: evaluatePath(m, o, series, t) }, series);
     }
     case "cumulative": {
       const series = idx.get(m.metric) ?? [];
-      return { ...cumulative(m, o, series, t, s), path: evaluatePath(m, o, series, t) };
+      return staleHint({ ...cumulative(m, o, series, t, s), path: evaluatePath(m, o, series, t) }, series);
     }
     case "frequency": return frequency(m, o, idx.get(m.metric) ?? [], t);
     case "boolean": return boolean(m, t);
