@@ -83,3 +83,14 @@ button.tile:hover { border-color: var(--accent); }
 .editor section label { margin-bottom: 8px; }
 .empty { text-align: center; }
 .mrow .row > label:last-child { flex: 0 1 70px; }
+
+/* ---- per-outcome logging ---- */
+.log { margin: 4px 0 10px; }
+.logform { display: grid; gap: 6px; padding: 10px; border-radius: 8px; background: var(--muted-bg); }
+.logform .row { align-items: center; flex-wrap: nowrap; }
+.logform input { margin-top: 0; }
+.logform input[type=date] { width: auto; }
+.logform input.unit { width: 80px; }
+.valwrap { display: flex; align-items: center; gap: 6px; flex: 1; }
+.valwrap input { min-width: 0; font-size: 17px; }
+p.error:empty, p.ok:empty { display: none; }

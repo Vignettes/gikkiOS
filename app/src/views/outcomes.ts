@@ -1,7 +1,7 @@
 import { addMonths, todayLocal } from "../dates";
 import { bound, errorBox, guarded, h, optNum, select } from "../dom";
 import { evaluateOutcome, type MilestoneEval, type OutcomeEval, type SeriesIndex, type Status, STATUS_LABEL } from "../engine";
-import { metricLabel } from "../metrics";
+import { fmt, METRICS, metricLabel } from "../metrics";
 import type { MetricSummary } from "../model";
 import {
   CATEGORIES, KINDS, type Milestone, type MilestoneKind, milestoneLabel, newId, type Outcome, type OutcomesDoc, validateOutcome,
@@ -14,6 +14,7 @@ export interface OutcomesCtx {
   summaries: MetricSummary[];
   today: string;
   save(doc: OutcomesDoc, message: string): Promise<void>; // encrypts, writes, re-renders dashboard
+  log(metric: string, value: number, unit: string, date: string): Promise<void>; // one encrypted reading
   mount(node: Node): void;                                  // replace the main view
   back(): void;                                             // return to dashboard
 }
@@ -100,6 +101,50 @@ function milestoneRow(ctx: OutcomesCtx, o: Outcome, e: MilestoneEval, isNext: bo
   );
 }
 
+/** Metrics this outcome needs typed in: no data yet, or last reading was manual. */
+export function manualMetrics(o: Outcome, summaries: MetricSummary[]): string[] {
+  const ids = [...new Set(o.milestones.flatMap((m) => ("metric" in m ? [m.metric] : [])))];
+  return ids.filter((id) => {
+    const s = summaries.find((x) => x.metric === id);
+    return !s || s.latest.kind === "manual";
+  });
+}
+
+function logPanel(ctx: OutcomesCtx, o: Outcome): Node | null {
+  const metrics = manualMetrics(o, ctx.summaries);
+  if (!metrics.length) return null;
+  const panel = h("div", { class: "log" });
+  const buttons = () => panel.replaceChildren(h("div", { class: "row" },
+    metrics.map((id) => h("button", { class: "small", onclick: () => form(id) }, `Log ${metricLabel(id).toLowerCase()}`))));
+  const form = (id: string) => {
+    const s = ctx.summaries.find((x) => x.metric === id);
+    const unit = METRICS[id]?.unit ?? s?.unit ?? "";
+    const err = errorBox();
+    const value = h("input", { inputmode: "decimal", autocomplete: "off", "aria-label": metricLabel(id), placeholder: s ? fmt(s.latest.value, unit, id).replace(/[^\d.,-]/g, "") : "" });
+    const date = h("input", { type: "date", value: ctx.today, "aria-label": "Date" });
+    const unitIn = unit ? null : h("input", { placeholder: "unit", "aria-label": "Unit", class: "unit" });
+    const save: HTMLButtonElement = h("button", { class: "primary small", type: "submit" }, "Save");
+    const submit = (ev: Event) => { ev.preventDefault(); void guarded(save, err, async () => {
+      const raw = value.value.trim().replace(/[$,\s]/g, "");
+      if (raw === "" || !Number.isFinite(Number(raw))) throw new Error("Enter a number");
+      save.textContent = "Saving…";
+      await ctx.log(id, Number(raw), unit || unitIn!.value.trim(), date.value || ctx.today);
+    }).finally(() => { save.textContent = "Save"; }); };
+    panel.replaceChildren(h("form", { class: "logform", onsubmit: submit },
+      h("strong", {}, metricLabel(id)),
+      h("div", { class: "row" },
+        h("span", { class: "valwrap" }, unit === "USD" ? h("span", { class: "muted" }, "$") : null, value,
+          unit && unit !== "USD" && unit !== "count" ? h("span", { class: "muted" }, unit) : null),
+        unitIn, date, save,
+        h("button", { class: "small", type: "button", onclick: buttons }, "Cancel")),
+      s ? h("div", { class: "muted" }, `Last: ${fmt(s.latest.value, unit, id)} on ${s.latest.t}`) : null,
+      err));
+    value.focus();
+  };
+  buttons();
+  return panel;
+}
+
 function outcomeCard(ctx: OutcomesCtx, e: OutcomeEval): Node {
   const o = e.outcome;
   return h("article", { class: `card outcome s-border-${e.status}` },
@@ -111,6 +156,7 @@ function outcomeCard(ctx: OutcomesCtx, e: OutcomeEval): Node {
     e.next ? h("div", { class: "nextline" },
       h("span", { class: "muted" }, "Next: "), milestoneLabel(e.next.milestone), h("span", { class: "muted" }, ` (${e.next.milestone.due}) `),
       e.next.hint ? h("div", { class: "hint" }, e.next.hint) : null) : h("p", { class: "ok" }, "All milestones achieved 🎉"),
+    logPanel(ctx, o),
     h("details", { open: expanded.has(o.id), ontoggle: (ev: Event) => {
       if ((ev.target as HTMLDetailsElement).open) expanded.add(o.id); else expanded.delete(o.id);
     } },

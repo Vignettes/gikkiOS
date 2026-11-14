@@ -185,8 +185,16 @@ function header(k: Keyring) {
     h("div", { class: "row" }, h("button", { onclick: () => void dashboard() }, "Refresh"), h("button", { onclick: lock }, "Lock")));
 }
 
+/** Encrypt one manual reading and write it to the vault. */
+async function logValue(k: Keyring, metric: string, value: number, unit: string, t: string) {
+  const snap = manualSnapshot(metric, value, unit, t);
+  const [y, m, d] = t.split("-");
+  await putFile(k, `data/${y}/${m}/${d}-manual-${Date.now()}.age`, await sealJSON(snap, k.recipients), "check-in: manual");
+}
+
 function outcomesCtx(k: Keyring, L: Loaded): OutcomesCtx {
   return {
+    log: async (metric, value, unit, t) => { await logValue(k, metric, value, unit, t); await dashboard(); },
     doc: L.doc, index: L.index, summaries: L.summaries, today: today(),
     mount: (node) => render(header(k), node),
     back: () => showDashboard(),
@@ -214,7 +222,7 @@ function showDashboard() {
           h("td", { class: "muted" }, s.latest.source),
           h("td", {}, sparkline(s)),
           h("td", {}, statusPill(s))))))
-    : h("p", { class: "muted" }, "No data yet. Record a check-in below, or set up the Apple Health Shortcut (vault README).");
+    : h("p", { class: "muted" }, "No data yet. Use the Log buttons on your outcomes, or set up the Apple Health Shortcut (vault README).");
 
   const ciErr = errorBox();
   const ciOk = h("p", { class: "ok" });
@@ -225,16 +233,10 @@ function showDashboard() {
     const unit = val("ciUnit") || summaries.find((s) => s.metric === metric)?.unit || "";
     const raw = val("ciValue");
     if (raw === "") throw new Error("Enter a value");
-    const snap = manualSnapshot(metric, Number(raw), unit, t);
-    const [y, m, d] = t.split("-");
-    await putFile(k, `data/${y}/${m}/${d}-manual-${Date.now()}.age`, await sealJSON(snap, k.recipients), "check-in: manual");
+    await logValue(k, metric, Number(raw), unit, t);
     ciOk.textContent = "Saved (encrypted).";
     setTimeout(() => void dashboard(), 600);
-  }) }, "Save check-in");
-
-  // Suggest metrics that outcomes track but that have no data yet.
-  const tracked = new Set(L.doc.outcomes.filter((o) => !o.archived).flatMap((o) => o.milestones.flatMap((m) => ("metric" in m ? [m.metric] : []))));
-  const missing = [...tracked].filter((m) => !L.index.has(m));
+  }) }, "Save");
 
   render(
     header(k),
@@ -242,12 +244,12 @@ function showDashboard() {
     L.warning ? h("p", { class: "error" }, L.warning) : null,
     L.docError ? h("p", { class: "error" }, L.docError) : null,
     outcomesSection(outcomesCtx(k, L)),
-    h("section", { class: "card" },
-      h("h2", {}, "Check-in"),
-      missing.length ? h("p", { class: "muted" }, "Waiting for data: ", missing.map(metricLabel).join(", ")) : null,
+    h("details", { class: "card" },
+      h("summary", {}, "Log something else"),
+      h("p", { class: "muted" }, "For numbers no outcome tracks yet. Use a name like area.thing, e.g. finance.side_income."),
       known,
       h("div", { class: "row" },
-        h("label", {}, "Metric", h("input", { id: "ciMetric", list: "metrics", placeholder: missing[0] ?? "finance.emergency_fund", autocomplete: "off" })),
+        h("label", {}, "Metric", h("input", { id: "ciMetric", list: "metrics", placeholder: "finance.side_income", autocomplete: "off" })),
         h("label", {}, "Value", h("input", { id: "ciValue", inputmode: "decimal", autocomplete: "off" })),
         h("label", {}, "Unit", h("input", { id: "ciUnit", placeholder: "USD", autocomplete: "off" })),
         h("label", {}, "Date", h("input", { id: "ciDate", type: "date", value: today() }))),

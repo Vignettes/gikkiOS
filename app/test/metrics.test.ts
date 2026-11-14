@@ -26,3 +26,18 @@ describe("plain names", () => {
     expect(niceRound(83.33, "kg", "health.weight_kg")).toBe(83.3);
   });
 });
+
+describe("per-outcome logging", async () => {
+  const { manualMetrics } = await import("../src/views/outcomes");
+  const sum = (metric: string, kind: "auto" | "manual") =>
+    ({ metric, unit: "", count: 1, ageDays: 0, stale: false, series: [], latest: { metric, t: "2026-11-01", value: 1, unit: "", source: "x", kind, ingested_at: "" } });
+  it("offers Log only for metrics without automatic data", () => {
+    const o = { id: "o", title: "t", why: "", category: "other" as const, start: "2026-11-01", horizon: "2027-11-01", milestones: [
+      { id: "a", kind: "threshold" as const, metric: "finance.emergency_fund", comparator: ">=" as const, target: 1, due: "2027-01-01" },
+      { id: "b", kind: "threshold" as const, metric: "health.rhr", comparator: "<=" as const, target: 1, due: "2027-01-01" },
+      { id: "c", kind: "threshold" as const, metric: "finance.debt", comparator: "<=" as const, target: 0, due: "2027-01-01" },
+      { id: "d", kind: "boolean" as const, title: "x", due: "2027-01-01" },
+    ] };
+    expect(manualMetrics(o, [sum("finance.emergency_fund", "manual"), sum("health.rhr", "auto")])).toEqual(["finance.emergency_fund", "finance.debt"]);
+  });
+});
