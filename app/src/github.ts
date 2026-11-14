@@ -18,14 +18,24 @@ async function gh(ref: VaultRef, path: string, init: RequestInit = {}, accept = 
       ...(init.body ? { "Content-Type": "application/json" } : {}),
     },
   });
-  if (!res.ok) {
-    const hint =
-      res.status === 401 ? "token invalid or expired" :
-      res.status === 403 ? "token lacks permission (or rate limited)" :
-      res.status === 404 ? "repo/branch not found, or token can't see it" : res.statusText;
-    throw new Error(`GitHub ${res.status}: ${hint}`);
-  }
+  if (!res.ok) throw new Error(await explain(res, (init.method ?? "GET") !== "GET"));
   return res;
+}
+
+/** Turn a failed response into a message that says what to fix, plus GitHub's own reason. */
+export async function explain(res: Response, isWrite: boolean): Promise<string> {
+  let reason = "";
+  try { reason = String(((await res.json()) as { message?: unknown }).message ?? ""); } catch { /* no JSON body */ }
+  const rateLimited = res.headers.get("x-ratelimit-remaining") === "0" || /rate limit/i.test(reason);
+  const hint =
+    rateLimited ? "GitHub rate limit reached. Wait a few minutes and try again" :
+    res.status === 401 ? "The token is invalid or expired. Create a new one and set this device up again" :
+    isWrite && (res.status === 403 || res.status === 404)
+      ? "This token can read the vault but not write to it. Edit the token on GitHub and set Contents to \"Read and write\""
+      : res.status === 403 ? "The token isn't allowed to do this. Check it has access to the vault repo" :
+    res.status === 404 ? "Vault repo or branch not found, or the token can't see it" :
+    res.statusText || "Request failed";
+  return `GitHub ${res.status}: ${hint}${reason ? ` (GitHub says: "${reason.slice(0, 200)}")` : ""}`;
 }
 
 export interface VaultFile { path: string; sha: string }
