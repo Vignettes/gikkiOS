@@ -261,6 +261,23 @@ const KIND_NAMES: Record<MilestoneKind, string> = {
   threshold: "Reach a value", cumulative: "Total over time", frequency: "Weekly habit", boolean: "Done / not done",
 };
 
+/** Pick what to track by plain name; "Other…" reveals a free-form id for custom metrics. */
+function metricPicker(ctx: OutcomesCtx, get: () => string, set: (v: string) => void): Node {
+  const ids = [...new Set([...Object.keys(METRICS), ...ctx.summaries.map((s) => s.metric), ...(get() ? [get()] : [])])];
+  const OTHER = "__other";
+  const sel = h("select", {},
+    h("option", { value: "", selected: !get() }, "Choose…"),
+    ids.map((id) => h("option", { value: id, selected: id === get() }, metricLabel(id))),
+    h("option", { value: OTHER }, "Other…"));
+  const custom = h("input", { placeholder: "area.name, e.g. finance.side_income", hidden: true, autocomplete: "off" });
+  sel.addEventListener("change", () => {
+    custom.hidden = sel.value !== OTHER;
+    if (sel.value === OTHER) { set(""); custom.focus(); } else set(sel.value);
+  });
+  custom.addEventListener("input", () => set(custom.value.trim()));
+  return h("label", { class: "metricpick" }, "Track", sel, custom);
+}
+
 function checkpointEditor(m: Extract<Milestone, { kind: "threshold" | "cumulative" }>, rerender: () => void): Node {
   const cps = m.checkpoints ?? [];
   const add = () => {
@@ -282,20 +299,23 @@ function checkpointEditor(m: Extract<Milestone, { kind: "threshold" | "cumulativ
 export function openEditor(ctx: OutcomesCtx, draft: Outcome, isNew: boolean) {
   const err = errorBox();
   const list = h("div", { class: "mlist" });
-  const metricsList = h("datalist", { id: "metricNames" }, ctx.summaries.map((s) => h("option", { value: s.metric }, metricLabel(s.metric))));
   const num = (v: string) => (v === "" ? NaN : Number(v));
 
   const renderList = () => {
     list.replaceChildren(...draft.milestones.map((m, i) => {
       const replaceKind = (k: MilestoneKind) => { draft.milestones[i] = { ...newMilestone(k, draft, m), id: m.id, due: m.due, title: m.title }; renderList(); };
       const fields: Node[] = [select("Type", KINDS, () => m.kind, replaceKind, KIND_NAMES)];
-      if (m.kind !== "boolean") {
-        fields.push(bound("Metric", () => m.metric, (v) => (m.metric = v), { list: "metricNames", placeholder: "area.name" }));
+      const advanced: Node[] = [];
+      if (m.kind === "boolean") {
+        fields.push(bound("What needs doing", () => m.title, (v) => (m.title = v || undefined)));
+      } else {
+        fields.push(metricPicker(ctx, () => m.metric, (v) => (m.metric = v)));
+        advanced.push(bound("Label (optional)", () => m.title, (v) => (m.title = v || undefined), { placeholder: milestoneLabel({ ...m, title: undefined }) }));
       }
       if (m.kind === "threshold") {
         fields.push(select("Direction", [">=", "<="] as const, () => m.comparator, (v) => (m.comparator = v), { ">=": "at least", "<=": "at most" }));
         fields.push(bound("Target", () => (Number.isNaN(m.target) ? "" : m.target), (v) => (m.target = num(v)), { inputmode: "decimal" }));
-        fields.push(bound("Smooth (days)", () => m.smooth, (v) => (m.smooth = optNum(v)), { inputmode: "numeric", placeholder: "1" }));
+        advanced.push(bound("Average over (days)", () => m.smooth, (v) => (m.smooth = optNum(v)), { inputmode: "numeric", placeholder: "1 = latest reading" }));
       }
       if (m.kind === "cumulative") {
         fields.push(bound("Total", () => (Number.isNaN(m.target) ? "" : m.target), (v) => (m.target = num(v)), { inputmode: "decimal" }));
@@ -305,14 +325,14 @@ export function openEditor(ctx: OutcomesCtx, draft: Outcome, isNew: boolean) {
         fields.push(bound("For weeks", () => m.for_weeks, (v) => (m.for_weeks = num(v)), { inputmode: "numeric" }));
       }
       fields.push(bound("Due", () => m.due, (v) => (m.due = v), { type: "date" }));
-      fields.push(bound("Weight", () => m.weight, (v) => (m.weight = optNum(v)), { inputmode: "decimal", placeholder: "1" }));
+      advanced.push(bound("Importance (weight)", () => m.weight, (v) => (m.weight = optNum(v)), { inputmode: "decimal", placeholder: "1 = normal, 2 = counts double" }));
       return h("div", { class: "mrow" },
         h("div", { class: "row between" },
           h("strong", {}, `Milestone ${i + 1}`),
           h("button", { class: "small danger", onclick: () => { draft.milestones.splice(i, 1); renderList(); } }, "Remove")),
-        bound(m.kind === "boolean" ? "What needs doing" : "Label (optional)", () => m.title, (v) => (m.title = v || undefined)),
         h("div", { class: "row" }, fields),
-        m.kind === "threshold" || m.kind === "cumulative" ? checkpointEditor(m, renderList) : null);
+        m.kind === "threshold" || m.kind === "cumulative" ? checkpointEditor(m, renderList) : null,
+        h("details", { class: "advanced" }, h("summary", {}, "More options"), h("div", { class: "row" }, advanced)));
     }));
   };
   renderList();
@@ -331,14 +351,16 @@ export function openEditor(ctx: OutcomesCtx, draft: Outcome, isNew: boolean) {
 
   ctx.mount(h("div", { class: "editor" },
     h("header", {}, h("h1", {}, isNew ? "Review outcome" : "Edit outcome"), h("button", { onclick: () => ctx.back() }, "Cancel")),
-    metricsList,
     h("section", { class: "card" },
       bound("Outcome", () => draft.title, (v) => (draft.title = v), { placeholder: "What will be true when you're done?" }),
       bound("Why it matters", () => draft.why, (v) => (draft.why = v), { placeholder: "Shown on the dashboard to keep it in view" }),
       h("div", { class: "row" },
         select("Category", CATEGORIES, () => draft.category, (v) => (draft.category = v)),
-        bound("Start", () => draft.start, (v) => (draft.start = v), { type: "date" }),
-        bound("Target date", () => draft.horizon, (v) => (draft.horizon = v), { type: "date" }))),
+        bound("Target date", () => draft.horizon, (v) => (draft.horizon = v), { type: "date" })),
+      h("details", { class: "advanced" }, h("summary", {}, "More options"),
+        h("div", { class: "row" },
+          bound("Start date", () => draft.start, (v) => (draft.start = v), { type: "date" }),
+          h("p", { class: "muted" }, "Streaks, totals and progress count from here.")))),
     h("section", { class: "card" },
       h("h2", {}, "Milestones"),
       list,

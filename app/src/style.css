@@ -79,10 +79,8 @@ button.tile:hover { border-color: var(--accent); }
 .mrow { border-top: 1px solid var(--line); padding: 12px 0; }
 .mrow:first-child { border-top: none; }
 .mrow .row > label { flex: 1 1 95px; }
-.mrow .row > label:has(input[list]) { flex: 2 1 170px; }
 .editor section label { margin-bottom: 8px; }
 .empty { text-align: center; }
-.mrow .row > label:last-child { flex: 0 1 70px; }
 
 /* ---- per-outcome logging ---- */
 .log { margin: 4px 0 10px; }
@@ -108,3 +106,9 @@ ol.path li.goal { font-weight: 600; }
 .cpedit { display: grid; gap: 6px; margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
 .cpedit .row { flex-wrap: nowrap; align-items: end; }
 .cpedit button.small { justify-self: start; }
+
+/* ---- editor: advanced options ---- */
+details.advanced { margin-top: 8px; }
+details.advanced summary { font-size: 13px; color: var(--muted); }
+details.advanced .row { margin-top: 6px; }
+.mrow .row > label.metricpick { flex: 2 1 180px; }

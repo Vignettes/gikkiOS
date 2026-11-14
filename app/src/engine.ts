@@ -88,7 +88,7 @@ function isStale(series: SeriesPoint[], today: number, staleDays: number) {
 
 function threshold(m: ThresholdMilestone, o: Outcome, series: SeriesPoint[], today: number, s: EvalSettings): MilestoneEval {
   const unit = series[0]?.unit;
-  if (!series.length) return { milestone: m, status: "no_data", progress: 0, summary: `No ${metricLabel(m.metric).toLowerCase()} data yet`, hint: "Add a check-in or connect a source" };
+  if (!series.length) return { milestone: m, status: "no_data", progress: 0, summary: `No ${metricLabel(m.metric).toLowerCase()} data yet`, hint: "Use Log to add a first reading, or connect a source" };
   const pts = smoothSeries(series, m.smooth);
   const last = pts[pts.length - 1];
   const current = last.v;
@@ -137,7 +137,7 @@ function cumulative(m: CumulativeMilestone, o: Outcome, series: SeriesPoint[], t
   const base = { milestone: m, progress, current: sum, unit, summary };
   if (sum >= m.target) return { ...base, status: "achieved", progress: 1 };
   if (today > due) return { ...base, status: "missed", hint: "Past due. Move the date or adjust the target" };
-  if (!series.length) return { ...base, status: "no_data", hint: "Add a check-in or connect a source" };
+  if (!series.length) return { ...base, status: "no_data", hint: "Use Log to add a first reading, or connect a source" };
   const elapsed = Math.max(1, Math.min(today, due) - start + 1);
   const total = due - start + 1;
   const projected = (sum / elapsed) * total;
