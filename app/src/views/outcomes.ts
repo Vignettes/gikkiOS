@@ -1,6 +1,7 @@
 import { addMonths, todayLocal } from "../dates";
 import { bound, errorBox, guarded, h, optNum, select } from "../dom";
 import { evaluateOutcome, type MilestoneEval, type OutcomeEval, type SeriesIndex, type Status, STATUS_LABEL } from "../engine";
+import { metricLabel } from "../metrics";
 import type { MetricSummary } from "../model";
 import {
   CATEGORIES, KINDS, type Milestone, type MilestoneKind, milestoneLabel, newId, type Outcome, type OutcomesDoc, validateOutcome,
@@ -164,7 +165,7 @@ function templateForm(ctx: OutcomesCtx, t: Template) {
         t.needsCurrent ? bound(`Where you are today${latest !== undefined ? " (from your data)" : ""}`,
           () => state.current, (v) => (state.current = v), { inputmode: "decimal", id: "tCurrent" }) : null),
       h("label", {}, cp, t.kind === "frequency" ? "Suggest checkpoints" : "Suggest checkpoints along the way"),
-      h("p", { class: "muted" }, `Tracks metric `, h("code", {}, t.metric),
+      h("p", { class: "muted" }, `Tracks ${metricLabel(t.metric).toLowerCase()}`,
         t.kind === "threshold" && t.smooth ? ` (${t.smooth}-day average)` : "",
         t.metric.startsWith("health.") ? ". Filled automatically by the Apple Health Shortcut." : ". Use check-ins until Plaid is connected."),
       h("p", {}, next), err),
@@ -191,7 +192,7 @@ const KIND_NAMES: Record<MilestoneKind, string> = {
 export function openEditor(ctx: OutcomesCtx, draft: Outcome, isNew: boolean) {
   const err = errorBox();
   const list = h("div", { class: "mlist" });
-  const metricsList = h("datalist", { id: "metricNames" }, ctx.summaries.map((s) => h("option", { value: s.metric })));
+  const metricsList = h("datalist", { id: "metricNames" }, ctx.summaries.map((s) => h("option", { value: s.metric }, metricLabel(s.metric))));
   const num = (v: string) => (v === "" ? NaN : Number(v));
 
   const renderList = () => {

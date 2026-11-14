@@ -1,10 +1,13 @@
 // Evaluates milestones against metric series. Pure functions: everything runs client-side.
 import { dayNum, dayStr, monthLabel, weekStart } from "./dates";
+import { fmt, metricLabel } from "./metrics";
 import type { SeriesPoint } from "./model";
 import {
   type BooleanMilestone, type CumulativeMilestone, DEFAULT_SETTINGS, type EvalSettings, type FrequencyMilestone,
   type Milestone, type Outcome, type ThresholdMilestone,
 } from "./outcomes";
+
+export { fmt };
 
 export type Status = "achieved" | "on_track" | "at_risk" | "off_track" | "missed" | "stale" | "no_data";
 
@@ -37,18 +40,11 @@ export type SeriesIndex = Map<string, SeriesPoint[]>; // metric -> ascending by 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const cmp = (v: number, c: ">=" | "<=", t: number) => (c === ">=" ? v >= t : v <= t);
 
-export function fmt(v: number, unit = ""): string {
-  const abs = Math.abs(v);
-  if (unit === "USD") {
-    return `${v < 0 ? "-" : ""}$${abs.toLocaleString(undefined, { maximumFractionDigits: abs >= 100 ? 0 : 2 })}`;
-  }
-  const s = abs >= 100 ? Math.round(v).toLocaleString() : (Math.round(v * 10) / 10).toLocaleString();
-  return unit && unit !== "count" ? `${s} ${unit}` : s;
-}
 function rate(perDay: number, unit: string, daysLeft: number): string {
   const [mult, per] = daysLeft > 90 ? [30.44, "mo"] : [7, "wk"];
   const v = perDay * mult;
-  return `${v >= 0 ? "+" : ""}${fmt(v, unit)}/${per}`;
+  const small = unit !== "USD" && Math.abs(v) < 10;  // keep "-2.4 bpm/mo" rather than "-2 bpm/mo"
+  return `${v >= 0 ? "+" : ""}${fmt(v, unit, undefined, small ? 1 : undefined)}/${per}`;
 }
 
 /** Least-squares slope (value per day). */
@@ -80,7 +76,7 @@ function isStale(series: SeriesPoint[], today: number, staleDays: number) {
 
 function threshold(m: ThresholdMilestone, o: Outcome, series: SeriesPoint[], today: number, s: EvalSettings): MilestoneEval {
   const unit = series[0]?.unit;
-  if (!series.length) return { milestone: m, status: "no_data", progress: 0, summary: `No ${m.metric} data yet`, hint: "Add a check-in or connect a source" };
+  if (!series.length) return { milestone: m, status: "no_data", progress: 0, summary: `No ${metricLabel(m.metric).toLowerCase()} data yet`, hint: "Add a check-in or connect a source" };
   const pts = smoothSeries(series, m.smooth);
   const last = pts[pts.length - 1];
   const current = last.v;

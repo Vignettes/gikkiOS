@@ -1,5 +1,6 @@
 // Outcome templates: a target and a date in, a ready-to-edit outcome with milestones out.
 import { addMonths, dayNum, todayLocal } from "./dates";
+import { decimalsFor } from "./metrics";
 import { type Category, type Comparator, type Milestone, newId, type Outcome } from "./outcomes";
 
 export interface Template {
@@ -65,10 +66,11 @@ export function checkpointDates(start: string, horizon: string): string[] {
   return out.slice(-8); // keep it short
 }
 
-export function niceRound(v: number, unit: string): number {
+export function niceRound(v: number, unit: string, metric?: string): number {
   if (unit === "USD") return Math.abs(v) >= 1000 ? Math.round(v / 100) * 100 : Math.round(v / 10) * 10;
   if (unit === "count" && Math.abs(v) >= 100) return Math.round(v / 100) * 100;
-  return Math.round(v * 10) / 10;
+  const f = 10 ** decimalsFor(unit, metric);
+  return Math.round(v * f) / f;
 }
 
 export interface TemplateInput {
@@ -91,7 +93,7 @@ export function fromTemplate(t: Template, inp: TemplateInput): Outcome {
       for (const d of checkpointDates(start, inp.horizon)) {
         const frac = (dayNum(d) - s0) / span;
         ms.push({ id: newId("m"), kind: "threshold", metric: t.metric, comparator,
-          target: niceRound(inp.current + (inp.target - inp.current) * frac, t.unit), due: d, smooth: t.smooth });
+          target: niceRound(inp.current + (inp.target - inp.current) * frac, t.unit, t.metric), due: d, smooth: t.smooth });
       }
     }
     ms.push({ id: newId("m"), kind: "threshold", metric: t.metric, comparator, target: inp.target,
@@ -101,7 +103,7 @@ export function fromTemplate(t: Template, inp: TemplateInput): Outcome {
       const s0 = dayNum(start), span = dayNum(inp.horizon) - s0;
       for (const d of checkpointDates(start, inp.horizon)) {
         ms.push({ id: newId("m"), kind: "cumulative", metric: t.metric,
-          target: niceRound(inp.target * ((dayNum(d) - s0) / span), t.unit), due: d });
+          target: niceRound(inp.target * ((dayNum(d) - s0) / span), t.unit, t.metric), due: d });
       }
     }
     ms.push({ id: newId("m"), kind: "cumulative", metric: t.metric, target: inp.target, due: inp.horizon, weight: 2 });

@@ -1,5 +1,6 @@
 // Outcomes document: stored encrypted at config/outcomes.age in the vault.
 import { DATE_RE, dayNum } from "./dates";
+import { fmt, METRICS, metricLabel } from "./metrics";
 import { METRIC_RE } from "./model";
 
 export type Category = "finance" | "health" | "learning" | "other";
@@ -116,10 +117,13 @@ export function validateOutcome(o: Outcome): string[] {
 
 export function milestoneLabel(m: Milestone): string {
   if (m.title?.trim()) return m.title.trim();
+  if (m.kind === "boolean") return "Done";
+  const info = METRICS[m.metric];
+  const unit = info?.unit ?? "";
+  const name = metricLabel(m.metric);
   switch (m.kind) {
-    case "threshold": return `${m.metric} ${m.comparator === ">=" ? "≥" : "≤"} ${m.target}`;
-    case "cumulative": return `${m.metric} total ≥ ${m.target}`;
-    case "frequency": return `${m.metric} ≥ ${m.at_least}/week for ${m.for_weeks} weeks`;
-    case "boolean": return "Done";
+    case "threshold": return `${name} ${m.comparator === ">=" ? "≥" : "≤"} ${fmt(m.target, unit, m.metric)}`;
+    case "cumulative": return `${name}: ${fmt(m.target, unit, m.metric)} total`;
+    case "frequency": return `${fmt(m.at_least, "", m.metric)}+ ${info?.noun ?? name.toLowerCase()} a week for ${m.for_weeks} weeks`;
   }
 }

@@ -1,7 +1,8 @@
 import { newIdentity, openJSON, recipientOf, sealJSON } from "./crypto";
 import { todayLocal } from "./dates";
 import { errorBox, guarded, h, val } from "./dom";
-import { fmt, type SeriesIndex } from "./engine";
+import type { SeriesIndex } from "./engine";
+import { fmt, metricLabel } from "./metrics";
 import { fetchBlob, listVault, pool, putFile } from "./github";
 import { forgetDevice, hasKeyring, type Keyring, saveKeyring, unlockKeyring, validateKeyring } from "./keyring";
 import { manualSnapshot, type MetricSummary, type Snapshot, summarize } from "./model";
@@ -207,8 +208,8 @@ function showDashboard() {
     ? h("table", {},
         h("thead", {}, h("tr", {}, ["Metric", "Latest", "Date", "Source", "Trend (30)", "Status"].map((t) => h("th", {}, t)))),
         h("tbody", {}, summaries.map((s) => h("tr", {},
-          h("td", {}, s.metric),
-          h("td", { class: "num" }, fmt(s.latest.value, s.unit)),
+          h("td", { title: s.metric }, metricLabel(s.metric)),
+          h("td", { class: "num" }, fmt(s.latest.value, s.unit, s.metric)),
           h("td", {}, s.latest.t),
           h("td", { class: "muted" }, s.latest.source),
           h("td", {}, sparkline(s)),
@@ -217,7 +218,7 @@ function showDashboard() {
 
   const ciErr = errorBox();
   const ciOk = h("p", { class: "ok" });
-  const known = h("datalist", { id: "metrics" }, summaries.map((s) => h("option", { value: s.metric })));
+  const known = h("datalist", { id: "metrics" }, summaries.map((s) => h("option", { value: s.metric }, metricLabel(s.metric))));
   const save: HTMLButtonElement = h("button", { class: "primary", onclick: () => guarded(save, ciErr, async () => {
     ciOk.textContent = "";
     const metric = val("ciMetric"), t = val("ciDate") || today();
@@ -243,7 +244,7 @@ function showDashboard() {
     outcomesSection(outcomesCtx(k, L)),
     h("section", { class: "card" },
       h("h2", {}, "Check-in"),
-      missing.length ? h("p", { class: "muted" }, "Waiting for data: ", missing.join(", ")) : null,
+      missing.length ? h("p", { class: "muted" }, "Waiting for data: ", missing.map(metricLabel).join(", ")) : null,
       known,
       h("div", { class: "row" },
         h("label", {}, "Metric", h("input", { id: "ciMetric", list: "metrics", placeholder: missing[0] ?? "finance.emergency_fund", autocomplete: "off" })),
