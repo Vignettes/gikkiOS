@@ -1,7 +1,7 @@
 import { addMonths, relDays, shortDate, todayLocal } from "../dates";
 import { bound, errorBox, guarded, h, optNum, select } from "../dom";
-import { evaluateOutcome, type MilestoneEval, type OutcomeEval, type PathEval, type SeriesIndex, type Status, STATUS_LABEL, STATUS_TONE, type Tone } from "../engine";
-import { fmt, METRICS, metricLabel } from "../metrics";
+import { evaluateOutcome, smoothSeries, type MilestoneEval, type OutcomeEval, type PathEval, type SeriesIndex, type Status, STATUS_LABEL, STATUS_TONE, type Tone } from "../engine";
+import { decimalsFor, fmt, METRICS, metricLabel } from "../metrics";
 import type { MetricSummary } from "../model";
 import {
   CATEGORIES, KINDS, type Milestone, type MilestoneKind, milestoneLabel, newId, type Outcome, type OutcomesDoc, validateOutcome,
@@ -214,7 +214,11 @@ export function openWizard(ctx: OutcomesCtx) {
 }
 
 function templateForm(ctx: OutcomesCtx, t: Template) {
-  const latest = ctx.summaries.find((s) => s.metric === t.metric)?.latest.value;
+  // Where you are today, from your data: the same smoothed value the engine will use.
+  const series = ctx.index.get(t.metric) ?? [];
+  const known = series.length ? smoothSeries(series, t.smooth).at(-1)!.v : undefined;
+  const f = 10 ** decimalsFor(t.unit, t.metric);
+  const latest = known === undefined ? undefined : Math.round(known * f) / f;
   const state = {
     target: t.defaultTarget?.toString() ?? "",
     horizon: addMonths(ctx.today, t.kind === "frequency" ? 3 : 12),
@@ -233,14 +237,23 @@ function templateForm(ctx: OutcomesCtx, t: Template) {
     openEditor(ctx, fromTemplate(t, { target, horizon: state.horizon, current, checkpoints: state.checkpoints, start: ctx.today }), true);
   }) }, "Next: review");
 
+  const currentInput = () => bound("Where you are today", () => state.current, (v) => (state.current = v), { inputmode: "decimal", id: "tCurrent" });
+  const knownLine = h("p", { class: "known" });
+  if (latest !== undefined) {
+    knownLine.append(
+      "Today: ", h("strong", {}, fmt(latest, t.unit, t.metric)),
+      h("span", { class: "muted" }, ` from your data (${t.smooth ? `${t.smooth}-day average, ` : ""}last reading ${shortDate(series.at(-1)!.t, ctx.today)}) `),
+      h("button", { class: "small", onclick: () => knownLine.replaceChildren(currentInput()) }, "Change"));
+  }
+
   ctx.mount(h("div", {},
     h("header", {}, h("h1", {}, t.label), h("button", { onclick: () => openWizard(ctx) }, "Back")),
     h("section", { class: "card" },
       h("div", { class: "row" },
         bound(t.targetLabel, () => state.target, (v) => (state.target = v), { inputmode: "decimal", id: "tTarget" }),
         bound("By", () => state.horizon, (v) => (state.horizon = v), { type: "date", id: "tHorizon" }),
-        t.needsCurrent ? bound(`Where you are today${latest !== undefined ? " (from your data)" : ""}`,
-          () => state.current, (v) => (state.current = v), { inputmode: "decimal", id: "tCurrent" }) : null),
+        t.needsCurrent && latest === undefined ? currentInput() : null),
+      t.needsCurrent && latest !== undefined ? knownLine : null,
       h("label", {}, cp, t.kind === "frequency" ? "Suggest checkpoints" : "Suggest checkpoints along the way"),
       h("p", { class: "muted" }, `Tracks ${metricLabel(t.metric).toLowerCase()}`,
         t.kind === "threshold" && t.smooth ? ` (${t.smooth}-day average)` : "",
