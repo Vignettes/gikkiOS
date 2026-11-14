@@ -1,6 +1,6 @@
 import { addMonths, todayLocal } from "../dates";
 import { bound, errorBox, guarded, h, optNum, select } from "../dom";
-import { evaluateOutcome, type MilestoneEval, type OutcomeEval, type SeriesIndex, type Status, STATUS_LABEL } from "../engine";
+import { evaluateOutcome, type MilestoneEval, type OutcomeEval, type PathEval, type SeriesIndex, type Status, STATUS_LABEL } from "../engine";
 import { fmt, METRICS, metricLabel } from "../metrics";
 import type { MetricSummary } from "../model";
 import {
@@ -83,6 +83,30 @@ async function mutate(ctx: OutcomesCtx, message: string, fn: (d: OutcomesDoc) =>
   try { await ctx.save(d, message); } catch (e) { alert((e as Error).message); }
 }
 
+const PATH_ICON = { met: "✓", missed: "✗", next: "→", upcoming: "○" } as const;
+
+/** "✓ $4,500 Feb 13 · → $7,000 May 13 · ○ $9,500 Aug 13 · ◎ $12,000 Nov 13" */
+function pathChips(e: MilestoneEval, path: PathEval): Node {
+  const m = e.milestone as Extract<Milestone, { kind: "threshold" | "cumulative" }>;
+  const unit = METRICS[m.metric]?.unit ?? e.unit ?? "";
+  return h("ol", { class: "path", "aria-label": "Checkpoints" },
+    path.points.map((p) => h("li", { class: `cp ${p.state}`, title: p.state },
+      `${PATH_ICON[p.state]} ${fmt(p.target, unit, m.metric)}`, h("span", { class: "muted" }, ` ${p.due}`))),
+    h("li", { class: "cp goal" }, `◎ ${fmt(m.target, unit, m.metric)}`, h("span", { class: "muted" }, ` ${m.due}`)));
+}
+
+/** One line for the card: the next checkpoint and how the value compares with the plan. */
+function planLine(e: MilestoneEval): Node | null {
+  const path = e.path;
+  if (!path || e.status === "achieved" || (!path.next && !path.note)) return null;
+  const m = e.milestone as Extract<Milestone, { kind: "threshold" | "cumulative" }>;
+  const unit = METRICS[m.metric]?.unit ?? e.unit ?? "";
+  return h("div", { class: "planline" },
+    h("span", { class: "muted" }, `${metricLabel(m.metric)}: `),
+    path.next ? `next checkpoint ${fmt(path.next.target, unit, m.metric)} by ${path.next.due}` : `final stretch to ${fmt(m.target, unit, m.metric)}`,
+    path.note ? h("span", { class: /behind/.test(path.note) ? "behind" : "ahead" }, ` · ${path.note}`) : null);
+}
+
 function milestoneRow(ctx: OutcomesCtx, o: Outcome, e: MilestoneEval, isNext: boolean): Node {
   const m = e.milestone;
   return h("li", { class: isNext ? "next" : "" },
@@ -98,6 +122,7 @@ function milestoneRow(ctx: OutcomesCtx, o: Outcome, e: MilestoneEval, isNext: bo
         pill(e.status))),
     h("div", { class: "muted" }, e.summary),
     e.hint && e.status !== "achieved" ? h("div", { class: "hint" }, e.hint) : null,
+    e.path ? pathChips(e, e.path) : null,
   );
 }
 
@@ -156,6 +181,7 @@ function outcomeCard(ctx: OutcomesCtx, e: OutcomeEval): Node {
     e.next ? h("div", { class: "nextline" },
       h("span", { class: "muted" }, "Next: "), milestoneLabel(e.next.milestone), h("span", { class: "muted" }, ` (${e.next.milestone.due}) `),
       e.next.hint ? h("div", { class: "hint" }, e.next.hint) : null) : h("p", { class: "ok" }, "All milestones achieved 🎉"),
+    e.milestones.map(planLine),
     logPanel(ctx, o),
     h("details", { open: expanded.has(o.id), ontoggle: (ev: Event) => {
       if ((ev.target as HTMLDetailsElement).open) expanded.add(o.id); else expanded.delete(o.id);
@@ -235,6 +261,24 @@ const KIND_NAMES: Record<MilestoneKind, string> = {
   threshold: "Reach a value", cumulative: "Total over time", frequency: "Weekly habit", boolean: "Done / not done",
 };
 
+function checkpointEditor(m: Extract<Milestone, { kind: "threshold" | "cumulative" }>, rerender: () => void): Node {
+  const cps = m.checkpoints ?? [];
+  const add = () => {
+    const last = cps.at(-1);
+    (m.checkpoints ??= []).push({ due: last ? addMonths(last.due, 3) : addMonths(todayLocal(), 3), target: NaN });
+    rerender();
+  };
+  return h("div", { class: "cpedit" },
+    h("span", { class: "muted" }, cps.length ? "Checkpoints on the way" : ""),
+    cps.map((c, j) => h("div", { class: "row" },
+      bound("By", () => c.due, (v) => (c.due = v), { type: "date" }),
+      bound("Reach", () => (Number.isNaN(c.target) ? "" : c.target), (v) => (c.target = v === "" ? NaN : Number(v)), { inputmode: "decimal" }),
+      h("button", { class: "small danger", "aria-label": "Remove checkpoint", onclick: () => {
+        cps.splice(j, 1); if (!cps.length) delete m.checkpoints; rerender();
+      } }, "×"))),
+    h("button", { class: "small", onclick: add }, "Add checkpoint"));
+}
+
 export function openEditor(ctx: OutcomesCtx, draft: Outcome, isNew: boolean) {
   const err = errorBox();
   const list = h("div", { class: "mlist" });
@@ -267,7 +311,8 @@ export function openEditor(ctx: OutcomesCtx, draft: Outcome, isNew: boolean) {
           h("strong", {}, `Milestone ${i + 1}`),
           h("button", { class: "small danger", onclick: () => { draft.milestones.splice(i, 1); renderList(); } }, "Remove")),
         bound(m.kind === "boolean" ? "What needs doing" : "Label (optional)", () => m.title, (v) => (m.title = v || undefined)),
-        h("div", { class: "row" }, fields));
+        h("div", { class: "row" }, fields),
+        m.kind === "threshold" || m.kind === "cumulative" ? checkpointEditor(m, renderList) : null);
     }));
   };
   renderList();

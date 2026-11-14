@@ -84,29 +84,23 @@ export interface TemplateInput {
 export function fromTemplate(t: Template, inp: TemplateInput): Outcome {
   const start = inp.start ?? todayLocal();
   const ms: Milestone[] = [];
+  const s0 = dayNum(start), span = dayNum(inp.horizon) - s0;
+  const frac = (d: string) => (dayNum(d) - s0) / span;
   if (t.kind === "threshold") {
     const comparator: Comparator = t.comparator === "auto"
       ? (inp.current !== undefined && inp.current > inp.target ? "<=" : ">=")
       : t.comparator ?? ">=";
-    if (inp.checkpoints && inp.current !== undefined && inp.current !== inp.target) {
-      const s0 = dayNum(start), span = dayNum(inp.horizon) - s0;
-      for (const d of checkpointDates(start, inp.horizon)) {
-        const frac = (dayNum(d) - s0) / span;
-        ms.push({ id: newId("m"), kind: "threshold", metric: t.metric, comparator,
-          target: niceRound(inp.current + (inp.target - inp.current) * frac, t.unit, t.metric), due: d, smooth: t.smooth });
-      }
-    }
+    const from = inp.current;
+    const checkpoints = inp.checkpoints && from !== undefined && from !== inp.target
+      ? checkpointDates(start, inp.horizon).map((d) => ({ due: d, target: niceRound(from + (inp.target - from) * frac(d), t.unit, t.metric) }))
+      : undefined;
     ms.push({ id: newId("m"), kind: "threshold", metric: t.metric, comparator, target: inp.target,
-      due: inp.horizon, smooth: t.smooth, baseline: inp.current, weight: 2 });
+      due: inp.horizon, smooth: t.smooth, baseline: inp.current, checkpoints, weight: 2 });
   } else if (t.kind === "cumulative") {
-    if (inp.checkpoints) {
-      const s0 = dayNum(start), span = dayNum(inp.horizon) - s0;
-      for (const d of checkpointDates(start, inp.horizon)) {
-        ms.push({ id: newId("m"), kind: "cumulative", metric: t.metric,
-          target: niceRound(inp.target * ((dayNum(d) - s0) / span), t.unit, t.metric), due: d });
-      }
-    }
-    ms.push({ id: newId("m"), kind: "cumulative", metric: t.metric, target: inp.target, due: inp.horizon, weight: 2 });
+    const checkpoints = inp.checkpoints
+      ? checkpointDates(start, inp.horizon).map((d) => ({ due: d, target: niceRound(inp.target * frac(d), t.unit, t.metric) }))
+      : undefined;
+    ms.push({ id: newId("m"), kind: "cumulative", metric: t.metric, target: inp.target, due: inp.horizon, checkpoints, weight: 2 });
   } else {
     ms.push({ id: newId("m"), kind: "frequency", metric: t.metric, at_least: inp.target,
       for_weeks: t.forWeeks ?? 8, due: inp.horizon });

@@ -94,3 +94,17 @@ button.tile:hover { border-color: var(--accent); }
 .valwrap { display: flex; align-items: center; gap: 6px; flex: 1; }
 .valwrap input { min-width: 0; font-size: 17px; }
 p.error:empty, p.ok:empty { display: none; }
+
+/* ---- checkpoint path ---- */
+ol.path { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; padding: 0; margin: 8px 0 0; font-size: 13px; }
+ol.path li.cp { border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; }
+ol.path li.met { color: var(--good); border-color: currentColor; }
+ol.path li.missed { color: var(--bad); border-color: currentColor; }
+ol.path li.next { border-color: var(--accent); font-weight: 600; }
+ol.path li.goal { font-weight: 600; }
+.planline { font-size: 14px; margin: 2px 0 8px; }
+.planline .ahead { color: var(--good); }
+.planline .behind { color: var(--warn); }
+.cpedit { display: grid; gap: 6px; margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--line); }
+.cpedit .row { flex-wrap: nowrap; align-items: end; }
+.cpedit button.small { justify-self: start; }

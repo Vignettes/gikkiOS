@@ -25,6 +25,18 @@ export interface MilestoneEval {
   projected?: number;
   summary: string;       // one line: where it stands
   hint?: string;         // what would get it (back) on track
+  path?: PathEval;
+}
+
+export interface PathPoint {
+  due: string;
+  target: number;
+  state: "met" | "missed" | "next" | "upcoming";
+}
+export interface PathEval {
+  points: PathPoint[];   // checkpoints only, ascending
+  next?: PathPoint;
+  note?: string;         // "$350 ahead of plan"
 }
 
 export interface OutcomeEval {
@@ -179,12 +191,67 @@ function boolean(m: BooleanMilestone, today: number): MilestoneEval {
   return { milestone: m, status, progress: 0, summary, hint: left <= 14 ? "Schedule it, or mark it done" : undefined };
 }
 
+/**
+ * Where the value stands against the planned path (start → checkpoints → target),
+ * and which checkpoints were met on their dates.
+ */
+function evaluatePath(m: ThresholdMilestone | CumulativeMilestone, o: Outcome, series: SeriesPoint[], today: number): PathEval | undefined {
+  if (!m.checkpoints?.length) return undefined;
+  const cps = [...m.checkpoints].sort((a, b) => a.due.localeCompare(b.due));
+  const cumulativeKind = m.kind === "cumulative";
+  const start = dayNum(cumulativeKind ? (m.start ?? o.start) : o.start);
+  const pts = cumulativeKind ? [] : smoothSeries(series, m.smooth);
+  const valueAt = (d: number): number | undefined => {
+    if (cumulativeKind) return series.reduce((a, p) => { const x = dayNum(p.t); return x >= start && x <= d ? a + p.value : a; }, 0);
+    let v: number | undefined;
+    for (const p of pts) if (p.d <= d) v = p.v;
+    return v;
+  };
+  const comparator = m.kind === "threshold" ? m.comparator : ">=";
+  const dir = comparator === ">=" ? 1 : -1;
+  const points: PathPoint[] = cps.map((c) => {
+    const d = dayNum(c.due);
+    if (d >= today) return { ...c, state: "upcoming" };
+    const v = valueAt(d);
+    return { ...c, state: v !== undefined && cmp(v, comparator, c.target) ? "met" : "missed" };
+  });
+  const next = points.find((p) => p.state === "upcoming");
+  if (next) next.state = "next";
+
+  const current = valueAt(today);
+  if (current === undefined || !series.length) return { points, next };
+  const baseline = cumulativeKind ? 0 : (m.baseline ?? (pts.find((p) => p.d >= start) ?? pts[0]).v);
+  const anchors = [{ d: start, v: baseline }, ...cps.map((c) => ({ d: dayNum(c.due), v: c.target })), { d: dayNum(m.due), v: m.target }];
+  let expected = anchors[anchors.length - 1].v;
+  for (let i = 1; i < anchors.length; i++) {
+    if (today <= anchors[i].d) {
+      const a = anchors[i - 1], b = anchors[i];
+      expected = b.d === a.d ? b.v : a.v + ((b.v - a.v) * (today - a.d)) / (b.d - a.d);
+      break;
+    }
+  }
+  const unit = series[0].unit;
+  const diff = (current - expected) * dir;
+  const tolerance = Math.abs(m.target - baseline) * 0.01;
+  const shown = fmt(Math.abs(diff), unit, m.metric);
+  const roundsToZero = shown === fmt(0, unit, m.metric);   // "0 bpm behind" reads as noise
+  const note = Math.abs(diff) <= tolerance || roundsToZero ? "right on plan"
+    : `${shown} ${diff > 0 ? "ahead of" : "behind"} plan`;
+  return { points, next, note };
+}
+
 export function evaluateMilestone(m: Milestone, o: Outcome, idx: SeriesIndex, today: string, settings: Partial<EvalSettings> = {}): MilestoneEval {
   const s = { ...DEFAULT_SETTINGS, ...settings };
   const t = dayNum(today);
   switch (m.kind) {
-    case "threshold": return threshold(m, o, idx.get(m.metric) ?? [], t, s);
-    case "cumulative": return cumulative(m, o, idx.get(m.metric) ?? [], t, s);
+    case "threshold": {
+      const series = idx.get(m.metric) ?? [];
+      return { ...threshold(m, o, series, t, s), path: evaluatePath(m, o, series, t) };
+    }
+    case "cumulative": {
+      const series = idx.get(m.metric) ?? [];
+      return { ...cumulative(m, o, series, t, s), path: evaluatePath(m, o, series, t) };
+    }
     case "frequency": return frequency(m, o, idx.get(m.metric) ?? [], t);
     case "boolean": return boolean(m, t);
   }

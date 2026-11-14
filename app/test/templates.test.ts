@@ -10,11 +10,12 @@ describe("templates", () => {
     expect(checkpointDates("2026-11-13", "2027-11-13")).toEqual(["2027-02-13", "2027-05-13", "2027-08-13"]);
     expect(checkpointDates("2026-11-13", "2029-11-13").length).toBe(5);
   });
-  it("emergency fund: interpolated checkpoints, final target weighted, valid", () => {
+  it("emergency fund: one goal with a checkpoint path, plus tasks", () => {
     const o = fromTemplate(T("emergency_fund"), { target: 12000, current: 2000, horizon: "2027-11-13", checkpoints: true, start: "2026-11-13" });
     const th = o.milestones.filter((m) => m.kind === "threshold");
-    expect(th.map((m) => m.kind === "threshold" && m.target)).toEqual([4500, 7000, 9500, 12000]);
-    expect(th.at(-1)!.weight).toBe(2);
+    expect(th).toHaveLength(1);
+    expect(th[0]).toMatchObject({ target: 12000, weight: 2, checkpoints: [
+      { due: "2027-02-13", target: 4500 }, { due: "2027-05-13", target: 7000 }, { due: "2027-08-13", target: 9500 }] });
     expect(o.milestones.some((m) => m.kind === "boolean")).toBe(true);
     expect(validateOutcome(o)).toEqual([]);
   });

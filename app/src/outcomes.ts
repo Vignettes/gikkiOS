@@ -7,6 +7,12 @@ export type Category = "finance" | "health" | "learning" | "other";
 export const CATEGORIES: Category[] = ["finance", "health", "learning", "other"];
 export type Comparator = ">=" | "<=";
 
+/** An intermediate stop on the way to a milestone's target (shown as a path, not a separate goal). */
+export interface Checkpoint {
+  due: string;
+  target: number;
+}
+
 interface MilestoneBase {
   id: string;
   title?: string;
@@ -20,12 +26,14 @@ export interface ThresholdMilestone extends MilestoneBase {
   target: number;
   smooth?: number;    // trailing-mean window in days, for noisy metrics (weight, RHR, sleep)
   baseline?: number;  // starting value for progress %; defaults to first value since outcome start
+  checkpoints?: Checkpoint[];
 }
 export interface CumulativeMilestone extends MilestoneBase {
   kind: "cumulative";
   metric: string;
   target: number;     // sum of daily values from start to due
   start?: string;     // defaults to outcome start
+  checkpoints?: Checkpoint[];
 }
 export interface FrequencyMilestone extends MilestoneBase {
   kind: "frequency";
@@ -110,6 +118,13 @@ export function validateOutcome(o: Outcome): string[] {
         break;
       default:
         e.push(`${at}: unknown kind`);
+    }
+    if ((m.kind === "threshold" || m.kind === "cumulative") && m.checkpoints) {
+      m.checkpoints.forEach((c, j) => {
+        if (!DATE_RE.test(c.due ?? "")) e.push(`${at}, checkpoint ${j + 1}: date is required`);
+        else if (DATE_RE.test(m.due ?? "") && dayNum(c.due) >= dayNum(m.due)) e.push(`${at}, checkpoint ${j + 1}: must be before the milestone's due date`);
+        if (!num(c.target)) e.push(`${at}, checkpoint ${j + 1}: target must be a number`);
+      });
     }
   });
   return e;

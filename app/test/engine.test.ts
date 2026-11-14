@@ -127,3 +127,34 @@ describe("boolean & rollup", () => {
     expect(evaluateOutcome(outcome([th(9000)]), new Map(), TODAY).status).toBe("no_data");
   });
 });
+
+describe("checkpoint path", () => {
+  // Plan: 1,000 on Aug 1 → 3,000 by Nov 1 → 5,000 by Feb 1. Actual: monthly +1,000 → 4,000 on Nov 1.
+  const m: Milestone = { id: "p", kind: "threshold", metric: "finance.ef", comparator: ">=", target: 9000, due: "2027-06-30",
+    baseline: 1000, checkpoints: [{ due: "2026-11-01", target: 3000 }, { due: "2027-02-01", target: 6000 }] };
+  it("marks met checkpoints, finds the next, compares to plan", () => {
+    const e = ev(m, idx(ef));
+    expect(e.path!.points.map((p) => p.state)).toEqual(["met", "next"]);
+    expect(e.path!.next!.target).toBe(6000);
+    // Expected on Nov 13: 3,000 + 3,000·12/92 ≈ 3,391; actual 4,000 → ≈ $609 ahead.
+    expect(e.path!.note).toMatch(/^\$6\d\d ahead of plan$/);
+  });
+  it("missed checkpoint and behind plan", () => {
+    const hard: Milestone = { ...m, checkpoints: [{ due: "2026-10-01", target: 3500 }, { due: "2027-02-01", target: 8000 }] } as Milestone;
+    const e = ev(hard, idx(ef));
+    expect(e.path!.points[0].state).toBe("missed");
+    expect(e.path!.note).toMatch(/behind plan/);
+  });
+  it("no checkpoints, no path", () => {
+    expect(ev(th(12000), idx(ef)).path).toBeUndefined();
+  });
+});
+
+describe("plan note rounding", () => {
+  it("a gap that rounds to zero reads as on plan", () => {
+    const rhr = pts("health.rhr", [["2026-11-01", 63.2], ["2026-11-12", 62.9]], "manual", "bpm");
+    const m: Milestone = { id: "r", kind: "threshold", metric: "health.rhr", comparator: "<=", target: 58, due: "2027-05-13",
+      baseline: 63.6, checkpoints: [{ due: "2027-02-14", target: 60 }] };
+    expect(evaluateMilestone(m, outcome([m], "2026-11-01"), new Map([["health.rhr", rhr]]), TODAY).path!.note).toBe("right on plan");
+  });
+});
