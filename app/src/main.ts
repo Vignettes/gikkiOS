@@ -1,5 +1,5 @@
 import { newIdentity, openJSON, recipientOf, sealJSON } from "./crypto";
-import { todayLocal } from "./dates";
+import { shortDate, todayLocal } from "./dates";
 import { errorBox, guarded, h, val } from "./dom";
 import type { SeriesIndex } from "./engine";
 import { fmt, metricLabel } from "./metrics";
@@ -218,7 +218,7 @@ function showDashboard() {
         h("tbody", {}, summaries.map((s) => h("tr", {},
           h("td", { title: s.metric }, metricLabel(s.metric)),
           h("td", { class: "num" }, fmt(s.latest.value, s.unit, s.metric)),
-          h("td", {}, s.latest.t),
+          h("td", { title: s.latest.t }, shortDate(s.latest.t)),
           h("td", { class: "muted" }, s.latest.source),
           h("td", {}, sparkline(s)),
           h("td", {}, statusPill(s))))))

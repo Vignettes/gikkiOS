@@ -1,5 +1,5 @@
 // Evaluates milestones against metric series. Pure functions: everything runs client-side.
-import { dayNum, dayStr, monthLabel, weekStart } from "./dates";
+import { dayNum, dayStr, monthLabel, relDays, shortDate, weekStart } from "./dates";
 import { fmt, metricLabel } from "./metrics";
 import type { SeriesPoint } from "./model";
 import {
@@ -103,7 +103,7 @@ function threshold(m: ThresholdMilestone, o: Outcome, series: SeriesPoint[], tod
   const progress = span === 0 ? (cmp(current, m.comparator, m.target) ? 1 : 0) : clamp01((current - baseline) / span);
   const due = dayNum(m.due);
   const base = { milestone: m, progress, current, unit };
-  const summary = `${fmt(current, unit)} now · target ${m.comparator === ">=" ? "≥" : "≤"} ${fmt(m.target, unit)} by ${m.due}`;
+  const summary = `${fmt(current, unit, m.metric)} now · target ${m.comparator === ">=" ? "≥" : "≤"} ${fmt(m.target, unit, m.metric)} by ${shortDate(m.due, dayStr(today))}`;
 
   if (cmp(current, m.comparator, m.target)) return { ...base, status: "achieved", progress: 1, summary };
   if (today > due) return { ...base, status: "missed", summary, hint: "Past due. Move the date or adjust the target" };
@@ -138,7 +138,7 @@ function cumulative(m: CumulativeMilestone, o: Outcome, series: SeriesPoint[], t
   const inRange = series.filter((p) => { const d = dayNum(p.t); return d >= start && d <= due; });
   const sum = inRange.reduce((a, p) => a + p.value, 0);
   const progress = clamp01(sum / m.target);
-  const summary = `${fmt(sum, unit)} of ${fmt(m.target, unit)} since ${dayStr(start)}`;
+  const summary = `${fmt(sum, unit, m.metric)} of ${fmt(m.target, unit, m.metric)} since ${shortDate(dayStr(start), dayStr(today))}`;
   const base = { milestone: m, progress, current: sum, unit, summary };
   if (sum >= m.target) return { ...base, status: "achieved", progress: 1 };
   if (today > due) return { ...base, status: "missed", hint: "Past due. Move the date or adjust the target" };
@@ -179,7 +179,7 @@ function frequency(m: FrequencyMilestone, o: Outcome, series: SeriesPoint[], tod
   const weeksLeft = Math.floor((weekStart(due) - thisWeek) / 7) + 1;   // including this week
   const needed = m.for_weeks - run;                                     // weeks still to qualify, this one included
   if (weeksLeft < needed) {
-    return { ...base, status: "off_track", hint: `Not enough weeks left for a ${m.for_weeks}-week streak; move the date to ${dayStr(thisWeek + (needed - 1) * 7 + 6)} or later` };
+    return { ...base, status: "off_track", hint: `Not enough weeks left for a ${m.for_weeks}-week streak; move the date to ${shortDate(dayStr(thisWeek + (needed - 1) * 7 + 6), dayStr(today))} or later` };
   }
   const lastWeekMissed = thisWeek > firstWeek && !ok(thisWeek - 7);
   const status: Status = lastWeekMissed ? "at_risk" : "on_track";
@@ -189,18 +189,18 @@ function frequency(m: FrequencyMilestone, o: Outcome, series: SeriesPoint[], tod
 
 function boolean(m: BooleanMilestone, today: number): MilestoneEval {
   const due = dayNum(m.due);
-  if (m.done) return { milestone: m, status: "achieved", progress: 1, summary: `Done${m.done_at ? ` ${m.done_at}` : ""}` };
+  if (m.done) return { milestone: m, status: "achieved", progress: 1, summary: `Done${m.done_at ? ` ${shortDate(m.done_at, dayStr(today))}` : ""}` };
   const left = due - today;
-  const summary = left >= 0 ? `Due ${m.due} (${left} day${left === 1 ? "" : "s"})` : `Was due ${m.due}`;
+  const summary = left >= 0 ? `Due ${shortDate(m.due, dayStr(today))} · ${relDays(m.due, dayStr(today))}` : `Was due ${shortDate(m.due, dayStr(today))}`;
   const status: Status = left < 0 ? "missed" : left <= 14 ? "at_risk" : "on_track";
   return { milestone: m, status, progress: 0, summary, hint: left <= 14 ? "Schedule it, or mark it done" : undefined };
 }
 
-function staleHint(e: MilestoneEval, series: SeriesPoint[]): MilestoneEval {
+function staleHint(e: MilestoneEval, series: SeriesPoint[], today: number): MilestoneEval {
   if (e.status !== "stale" || !series.length) return e;
   const last = series[series.length - 1];
   const source = last.source === "apple_health" ? "the Apple Health Shortcut" : last.source;
-  return { ...e, hint: `No new data since ${last.t}. Check that ${source} is running` };
+  return { ...e, hint: `No new data since ${shortDate(last.t, dayStr(today))}. Check that ${source} is running` };
 }
 
 /**
@@ -258,11 +258,11 @@ export function evaluateMilestone(m: Milestone, o: Outcome, idx: SeriesIndex, to
   switch (m.kind) {
     case "threshold": {
       const series = idx.get(m.metric) ?? [];
-      return staleHint({ ...threshold(m, o, series, t, s), path: evaluatePath(m, o, series, t) }, series);
+      return staleHint({ ...threshold(m, o, series, t, s), path: evaluatePath(m, o, series, t) }, series, t);
     }
     case "cumulative": {
       const series = idx.get(m.metric) ?? [];
-      return staleHint({ ...cumulative(m, o, series, t, s), path: evaluatePath(m, o, series, t) }, series);
+      return staleHint({ ...cumulative(m, o, series, t, s), path: evaluatePath(m, o, series, t) }, series, t);
     }
     case "frequency": return frequency(m, o, idx.get(m.metric) ?? [], t);
     case "boolean": return boolean(m, t);

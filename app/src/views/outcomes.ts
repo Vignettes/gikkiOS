@@ -1,4 +1,4 @@
-import { addMonths, todayLocal } from "../dates";
+import { addMonths, relDays, shortDate, todayLocal } from "../dates";
 import { bound, errorBox, guarded, h, optNum, select } from "../dom";
 import { evaluateOutcome, type MilestoneEval, type OutcomeEval, type PathEval, type SeriesIndex, type Status, STATUS_LABEL, STATUS_TONE, type Tone } from "../engine";
 import { fmt, METRICS, metricLabel } from "../metrics";
@@ -96,8 +96,8 @@ function pathChips(e: MilestoneEval, path: PathEval): Node {
   const unit = METRICS[m.metric]?.unit ?? e.unit ?? "";
   return h("ol", { class: "path", "aria-label": "Checkpoints" },
     path.points.map((p) => h("li", { class: `cp ${p.state}`, title: p.state },
-      `${PATH_ICON[p.state]} ${fmt(p.target, unit, m.metric)}`, h("span", { class: "muted" }, ` ${p.due}`))),
-    h("li", { class: "cp goal" }, `◎ ${fmt(m.target, unit, m.metric)}`, h("span", { class: "muted" }, ` ${m.due}`)));
+      `${PATH_ICON[p.state]} ${fmt(p.target, unit, m.metric)}`, h("span", { class: "muted" }, ` ${shortDate(p.due)}`))),
+    h("li", { class: "cp goal" }, `◎ ${fmt(m.target, unit, m.metric)}`, h("span", { class: "muted" }, ` ${shortDate(m.due)}`)));
 }
 
 /** One line for the card: the next checkpoint and how the value compares with the plan. */
@@ -108,7 +108,7 @@ function planLine(e: MilestoneEval): Node | null {
   const unit = METRICS[m.metric]?.unit ?? e.unit ?? "";
   return h("div", { class: "planline" },
     h("span", { class: "muted" }, `${metricLabel(m.metric)}: `),
-    path.next ? `next checkpoint ${fmt(path.next.target, unit, m.metric)} by ${path.next.due}` : `final stretch to ${fmt(m.target, unit, m.metric)}`,
+    path.next ? `next checkpoint ${fmt(path.next.target, unit, m.metric)} by ${shortDate(path.next.due)}` : `final stretch to ${fmt(m.target, unit, m.metric)}`,
     path.note ? h("span", { class: /behind/.test(path.note) ? "behind" : "ahead" }, ` · ${path.note}`) : null);
 }
 
@@ -116,7 +116,7 @@ function milestoneRow(ctx: OutcomesCtx, o: Outcome, e: MilestoneEval, isNext: bo
   const m = e.milestone;
   return h("li", { class: isNext ? "next" : "" },
     h("div", { class: "row between" },
-      h("span", {}, h("strong", {}, milestoneLabel(m)), h("span", { class: "muted" }, ` · due ${m.due}`)),
+      h("span", {}, h("strong", {}, milestoneLabel(m)), h("span", { class: "muted" }, ` · due ${shortDate(m.due)}`)),
       h("span", { class: "row" },
         m.kind === "boolean" && !m.done
           ? h("button", { class: "small", onclick: () => mutate(ctx, "milestone: done", (d) => {
@@ -167,7 +167,7 @@ function logPanel(ctx: OutcomesCtx, o: Outcome): Node | null {
           unit && unit !== "USD" && unit !== "count" ? h("span", { class: "muted" }, unit) : null),
         unitIn, date, save,
         h("button", { class: "small", type: "button", onclick: buttons }, "Cancel")),
-      s ? h("div", { class: "muted" }, `Last: ${fmt(s.latest.value, unit, id)} on ${s.latest.t}`) : null,
+      s ? h("div", { class: "muted" }, `Last: ${fmt(s.latest.value, unit, id)}, ${shortDate(s.latest.t, ctx.today)}`) : null,
       err));
     value.focus();
   };
@@ -179,12 +179,12 @@ function outcomeCard(ctx: OutcomesCtx, e: OutcomeEval): Node {
   const o = e.outcome;
   return h("article", { class: `card outcome b-${STATUS_TONE[e.status]}` },
     h("div", { class: "row between" },
-      h("div", {}, h("h3", {}, o.title), h("span", { class: "muted" }, `${o.category} · by ${o.horizon}`)),
+      h("div", {}, h("h3", {}, o.title), h("span", { class: "muted" }, `${o.category} · by ${shortDate(o.horizon, ctx.today)} (${relDays(o.horizon, ctx.today)})`)),
       pill(e.status)),
     o.why ? h("p", { class: "why" }, o.why) : null,
     h("div", { class: "row between progress" }, bar(e.progress, e.status), h("span", { class: "muted" }, `${Math.round(e.progress * 100)}%`)),
     e.next ? h("div", { class: "nextline" },
-      h("span", { class: "muted" }, "Next: "), milestoneLabel(e.next.milestone), h("span", { class: "muted" }, ` (${e.next.milestone.due}) `),
+      h("span", { class: "muted" }, "Next: "), milestoneLabel(e.next.milestone), h("span", { class: "muted" }, ` · ${shortDate(e.next.milestone.due, ctx.today)} `),
       e.next.hint ? h("div", { class: "hint" }, e.next.hint) : null) : h("p", { class: "ok" }, "All milestones achieved 🎉"),
     e.milestones.map(planLine),
     logPanel(ctx, o),

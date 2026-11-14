@@ -23,3 +23,24 @@ export function addMonths(s: string, months: number): string {
 export function monthLabel(s: string): string {
   return new Date(`${s}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
 }
+
+/** "today" · "tomorrow" · "yesterday" · "Feb 14" (this year) · "Feb 14, 2028". */
+export function shortDate(s: string, today = todayLocal()): string {
+  const d = dayNum(s), t = dayNum(today);
+  if (d === t) return "today";
+  if (d === t + 1) return "tomorrow";
+  if (d === t - 1) return "yesterday";
+  const sameYear = s.slice(0, 4) === today.slice(0, 4);
+  return new Date(`${s}T00:00:00Z`).toLocaleDateString(undefined,
+    { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }), timeZone: "UTC" });
+}
+
+/** "in 5 days" · "in 3 weeks" · "in 4 months" · "2 days ago" … */
+export function relDays(s: string, today = todayLocal()): string {
+  const n = dayNum(s) - dayNum(today);
+  if (n === 0) return "today";
+  const a = Math.abs(n);
+  const [v, u] = a < 14 ? [a, "day"] : a < 60 ? [Math.round(a / 7), "week"] : a < 730 ? [Math.round(a / 30.44), "month"] : [Math.round(a / 365.25), "year"];
+  const span = `${v} ${u}${v === 1 ? "" : "s"}`;
+  return n > 0 ? `in ${span}` : `${span} ago`;
+}

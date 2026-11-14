@@ -169,6 +169,6 @@ describe("display statuses", async () => {
   });
   it("stale milestones say what to check", () => {
     const rhr = pts("health.rhr", [["2026-10-20", 64], ["2026-10-27", 62], ["2026-11-01", 61]], "auto", "bpm");
-    expect(ev(th(55, "2027-06-30", "<=", "health.rhr"), idx(rhr)).hint).toBe("No new data since 2026-11-01. Check that the Apple Health Shortcut is running");
+    expect(ev(th(55, "2027-06-30", "<=", "health.rhr"), idx(rhr)).hint).toBe("No new data since Nov 1. Check that the Apple Health Shortcut is running");
   });
 });
